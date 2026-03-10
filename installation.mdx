@@ -623,8 +623,8 @@ If successful, Warden can now publish posts remotely.
   Learn all interactive commands for monitoring and debugging
 </Card>
 
-<Card title="HTTP API Reference" icon="code" href="/interfaces/http-api">
-  Submit tasks programmatically via REST endpoints
+<Card title="Telegram Commands" icon="paper-plane" href="/commands/telegram/new">
+  Control Warden remotely via Telegram
 </Card>
 
 <Card title="Cron Jobs" icon="clock" href="/concepts/cron-scheduling">
@@ -644,10 +644,9 @@ Before deploying to production:
 - [ ] pm2 startup script configured and tested
 - [ ] Log rotation configured: `pm2 install pm2-logrotate`
 - [ ] Monitoring/alerting set up (pm2 Plus, Datadog, etc.)
-- [ ] Firewall rules configured (if exposing HTTP API)
-- [ ] SSL/TLS for HTTP API (if external access needed)
 - [ ] Test disaster recovery: stop service, reboot, verify auto-restart
+- [ ] Telegram bot token secured (if using Telegram integration)
 
 <Warning>
-**Security Reminder:** Warden executes arbitrary shell commands via the `bash` tool. Run only in trusted environments. Never expose the HTTP API publicly without authentication.
+**Security Reminder:** Warden executes arbitrary shell commands via the `bash` tool. Run only in trusted environments with proper access controls.
 </Warning>

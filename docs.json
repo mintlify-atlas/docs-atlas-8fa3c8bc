@@ -44,8 +44,7 @@
             "group": "Interfaces",
             "pages": [
               "interfaces/repl",
-              "interfaces/telegram",
-              "interfaces/http-api"
+              "interfaces/telegram"
             ]
           },
           {

@@ -3,17 +3,6 @@ title: "Introduction"
 description: "Warden is a 24/7 local CLI agent that automates tasks through a Supabase-backed queue with Telegram bot integration and cron scheduling."
 ---
 
-<img
-  className="block dark:hidden"
-  src="/images/hero-light.svg"
-  alt="Warden Hero Light"
-/>
-<img
-  className="hidden dark:block"
-  src="/images/hero-dark.svg"
-  alt="Warden Hero Dark"
-/>
-
 ## What is Warden?
 
 Warden is an autonomous CLI agent designed to run continuously on your local machine. It executes tasks by writing and running shell scripts, with a focus on automation workflows like content publishing, scheduled jobs, and remote control via Telegram.
@@ -43,7 +32,7 @@ Warden is an autonomous CLI agent designed to run continuously on your local mac
     Conversations persist across tasks. Warden remembers context from previous interactions.
   </Card>
   <Card title="Multiple Interfaces" icon="layer-group">
-    Submit tasks via Telegram, interactive REPL, or HTTP API. All routes feed the same queue.
+    Submit tasks via Telegram bot or interactive REPL. Both feed the same Supabase task queue.
   </Card>
   <Card title="WordPress Automation" icon="wordpress">
     Built-in wp-cli integration for publishing blog posts, managing media, and content workflows.
@@ -65,14 +54,14 @@ graph TD
     C -->|Claim & execute| D[Agent Session]
     D -->|Tool calls| E[bash/read/write/wp]
     D -->|Log events| B
-    C -->|Notify on completion| F[Telegram/HTTP]
+    C -->|Notify on completion| F[Telegram]
 ```
 
-1. **Submit a task** — via Telegram, REPL, or HTTP API
+1. **Submit a task** — via Telegram or REPL
 2. **Runner claims it** — polls Supabase for the oldest pending task
 3. **Agent executes** — uses LLM + built-in tools (bash, read, write, wp-cli)
 4. **Events logged** — every tool call and result saved to database
-5. **Results delivered** — sent back to original source (Telegram chat, HTTP response, etc.)
+5. **Results delivered** — sent back to original source (Telegram chat or REPL)
 
 ## Use Cases
 

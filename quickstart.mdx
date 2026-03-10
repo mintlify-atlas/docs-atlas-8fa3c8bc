@@ -197,7 +197,7 @@ The REPL supports two execution modes:
 </CodeGroup>
 
 - **Direct mode** — Creates its own agent session, streams responses directly. Best for testing.
-- **Queue mode** — Inserts tasks into Supabase like the HTTP API. Best for simulating production.
+- **Queue mode** — Inserts tasks into Supabase queue. Best for simulating production behavior.
 
 Switch modes anytime with `/direct` or `/queue`. Exit with `/quit`.
 
@@ -231,12 +231,13 @@ Switch modes anytime with `/direct` or `/queue`. Exit with `/quit`.
     3. If table doesn't exist, re-run the migration from `supabase/migrations/001_initial_schema.sql`
   </Accordion>
 
-  <Accordion title="Port 3100 already in use">
-    **Cause**: Another service is using the default port
+  <Accordion title="Telegram bot not responding">
+    **Cause**: Invalid bot token or token not set
 
     **Fix**:
-    1. Add `WARDEN_PORT=3200` to `.env` (or any free port)
-    2. Restart Warden
+    1. Get token from @BotFather on Telegram
+    2. Add `TELEGRAM_BOT_TOKEN=your-token` to `.env`
+    3. Restart Warden and check logs for "Telegram bot started"
   </Accordion>
 
   <Accordion title="Agent has no access to files outside working directory">
@@ -263,7 +264,7 @@ Now that Warden is running, explore these topics:
   <Card title="REPL Modes" icon="terminal" href="/commands/repl/modes">
     Master direct vs queue mode, session persistence, and advanced REPL commands
   </Card>
-  <Card title="HTTP API" icon="code" href="/interfaces/http-api">
-    Submit tasks programmatically, integrate with webhooks, and build on top of Warden
+  <Card title="Telegram Integration" icon="paper-plane" href="/interfaces/telegram">
+    Control Warden remotely via Telegram, submit tasks from anywhere
   </Card>
 </CardGroup>

@@ -233,15 +233,18 @@ npx tsx src/cron-cli.ts delete <id>
 
 ```
 src/
-├── index.ts           # Orchestrator
-├── server.ts          # HTTP API (POST /api/task, GET /health)
+├── index.ts           # Orchestrator (starts all subsystems)
 ├── runner.ts          # Task poller + executor
 ├── repl.ts            # Interactive CLI
 ├── telegram.ts        # Telegram bot (optional)
+├── cron.ts            # Cron job scheduler
+├── cron-cli.ts        # Cron management CLI
 ├── session-store.ts   # Agent session caching
 ├── config.ts          # Provider/model resolution
 ├── prompt.ts          # System prompt
 ├── logger.ts          # Event → database logging
+├── skill-tool.ts      # Skills system
+├── wp-tool.ts         # WordPress integration
 └── data_model/        # Supabase types + helpers
     ├── types.ts       # TypeScript interfaces
     ├── db.ts          # Database operations
