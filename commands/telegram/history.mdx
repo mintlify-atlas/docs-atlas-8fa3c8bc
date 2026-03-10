@@ -1,0 +1,111 @@
+---
+title: '/history'
+description: 'View recent task history across all statuses'
+---
+
+## Overview
+
+The `/history` command shows your most recent tasks regardless of status (`pending`, `running`, `done`, or `failed`). By default it shows the last 3 tasks, but you can specify a custom count.
+
+## Usage
+
+```bash
+# Show last 3 tasks (default)
+/history
+
+# Show last 10 tasks
+/history 10
+
+# Show last 5 tasks
+/history 5
+```
+
+## Output Format
+
+Each task is displayed on one line:
+
+```
+<task-id>  <status>  <age>  <instruction>
+```
+
+- **task-id** — First 8 characters of the task UUID
+- **status** — `pending`, `running`, `done`, or `failed`
+- **age** — How long ago the task was created (e.g., `5m`, `2h`, `30s`)
+- **instruction** — First 50 characters of the task instruction (truncated with `...`)
+
+## Example Output
+
+```
+You: /history 5
+Warden:
+a1b2c3d4  done     10m  Help me debug the login endpoint issue...
+e5f6g7h8  failed   15m  Deploy the app to production (access denied)
+i9j0k1l2  done     1h   Review and merge the latest pull request
+m3n4o5p6  done     2h   Update the documentation for the API...
+q7r8s9t0  running  5m   Analyze the performance metrics for the...
+```
+
+<Note>
+If there are no tasks found, you'll see: "No tasks found."
+</Note>
+
+## When to Use
+
+- Review what you worked on recently
+- Check if a task succeeded or failed
+- Find task IDs for completed work
+- Debug workflow issues by seeing the full timeline
+
+<Tip>
+Use `/history` with no count first to see recent work. If you need to dig deeper, try `/history 20` or `/history 50`.
+</Tip>
+
+## Comparison with `/tasks`
+
+| Command | Shows | Status Filter |
+|---------|-------|---------------|
+| `/tasks` | Active tasks only | `pending`, `running` |
+| `/history` | Recent tasks (all) | All statuses including `done`, `failed` |
+
+## Getting Task Details
+
+Once you have a task ID from history, use `/task <id>` to see full details including:
+- Complete instruction text
+- Full result or error message
+- All tool invocations (reads, writes, bash commands)
+- Timestamps for each step
+
+## Technical Details
+
+Implementation location: `src/telegram.ts:34-57`
+
+```typescript
+if (text === "/history" || text.startsWith("/history@") || text.startsWith("/history ")) {
+  const countStr = text.replace(/^\/history(@\S+)?\s*/, "").trim();
+  const count = countStr ? parseInt(countStr, 10) : 3;
+  if (isNaN(count) || count < 1) {
+    await ctx.reply("Usage: /history [count]");
+    return;
+  }
+  try {
+    const tasks = await listRecentTasks(count);
+    if (tasks.length === 0) {
+      await ctx.reply("No tasks found.");
+    } else {
+      const lines = tasks.map((t) => {
+        const age = formatAge(t.created_at);
+        const instr = t.instruction.length > 50 
+          ? t.instruction.slice(0, 47) + "..." 
+          : t.instruction;
+        return `${t.id.slice(0, 8)}  ${t.status}  ${age}  ${instr}`;
+      });
+      await ctx.reply(lines.join("\n"));
+    }
+  } catch (err) {
+    await ctx.reply("Failed to list history.").catch(() => {});
+  }
+  return;
+}
+```
+
+Queries the `warden_tasks` table ordered by `created_at DESC` with the specified limit (default 3).

@@ -1,0 +1,361 @@
+---
+title: 'Skills System Overview'
+description: 'Load specialized workflows and instructions on demand'
+icon: 'brain'
+---
+
+## What are Skills?
+
+Skills are **prompt templates** that guide Warden through specific tasks. Instead of hardcoding instructions for every possible workflow, Warden loads skills dynamically when needed.
+
+Think of skills as specialized expertise modules — when Warden needs to write a blog post, it loads the `content-style` skill. When publishing to WordPress, it loads the `publish` skill.
+
+<CardGroup cols={2}>
+  <Card title="Content Writing" icon="pen" href="/skills/content-writing">
+    Blog post structure, style guide, and audience targeting
+  </Card>
+  <Card title="SEO Audit" icon="chart-line" href="/skills/seo-audit">
+    On-page SEO checklist and keyword research workflow
+  </Card>
+  <Card title="Publishing" icon="upload" href="/skills/publishing">
+    WordPress management via wp-cli over SSH
+  </Card>
+  <Card title="Co-Marketing" icon="handshake">
+    Partner site monitoring and complementary topic generation
+  </Card>
+</CardGroup>
+
+## How Skills Work
+
+### Architecture
+
+Skills are stored as markdown files in `~/workspace/source/skills/`. Each skill has:
+
+1. **YAML frontmatter** — metadata (trigger condition, description)
+2. **Markdown body** — the full instructions, checklists, and examples
+
+```markdown
+---
+trigger: When writing blog content for openclaws.blog
+description: Writing style guide for openclaws.blog
+---
+# Content Style Guide
+
+When writing blog posts, follow this structure...
+```
+
+See `~/workspace/source/src/skill-tool.ts:15-30` for the frontmatter parser.
+
+### Loading Skills
+
+Warden uses the `skill` tool to load a skill by name:
+
+```typescript
+// The skill tool is defined in src/skill-tool.ts:103-137
+export const skillTool: ToolDefinition<typeof SkillParams> = {
+  name: "skill",
+  description: buildDescription(),
+  parameters: SkillParams,
+  async execute(_toolCallId, params) {
+    const entry = skills.get(params.skill);
+    return { content: [{ type: "text", text: entry.content }] };
+  }
+};
+```
+
+When a skill is loaded, its content becomes part of the conversation context.
+
+### Automatic Discovery
+
+The system prompt includes a summary of all available skills (`~/workspace/source/src/prompt.ts:1-4`):
+
+```typescript
+const skillSection = listSkillSummaries();
+// Generates:
+// ## Available Skills
+// - content-style: Writing style guide | Trigger: when writing blog content
+// - seo-audit: SEO checklist | Trigger: when auditing posts
+// ...
+```
+
+## Available Skills
+
+<AccordionGroup>
+  <Accordion title="content-style" icon="pen">
+    **Trigger**: When writing or editing blog content
+    
+    Defines the structure template, audience rules, and narrative patterns for openclaws.blog posts. Includes:
+    - Target audience personas (SMB decision-makers, IT managers)
+    - Jargon rules (no unexplained developer terms)
+    - Branded metaphor system
+    - 2,000-3,000 word structure template
+    
+    See [Content Writing](/skills/content-writing) for details.
+  </Accordion>
+  
+  <Accordion title="seo-audit" icon="chart-line">
+    **Trigger**: When auditing for SEO or doing keyword research
+    
+    Checklist for on-page SEO elements:
+    - Title tags, meta descriptions, URL slugs
+    - Heading structure (H1, H2, H3)
+    - Keyword density and placement
+    - Internal/external links
+    - Image alt text
+    
+    See [SEO Audit](/skills/seo-audit) for the full checklist.
+  </Accordion>
+  
+  <Accordion title="aeo-audit" icon="robot">
+    **Trigger**: When optimizing content for AI answer engines
+    
+    Answer Engine Optimization (AEO) checklist for ChatGPT, Perplexity, and Google AI Overviews:
+    - Q&A pattern structuring
+    - AI-extractable definitions
+    - Brand consistency monitoring
+    - Quarterly AI query testing
+  </Accordion>
+  
+  <Accordion title="publish" icon="upload">
+    **Trigger**: When publishing or managing WordPress posts
+    
+    wp-cli command reference for openclaws.blog:
+    - Create/update/delete posts
+    - Schedule future posts
+    - Manage categories and tags
+    - Update pages (Home, About, Blog)
+    
+    See [Publishing](/skills/publishing) for wp-cli examples.
+  </Accordion>
+  
+  <Accordion title="co-marketing" icon="handshake">
+    **Trigger**: When monitoring V2Cloud or generating topic ideas
+    
+    Partner site monitoring workflow:
+    - WordPress REST API queries
+    - Sitemap diffing
+    - Wayback Machine comparison
+    - Complementary topic generation (never adversarial)
+  </Accordion>
+  
+  <Accordion title="research" icon="magnifying-glass">
+    **Trigger**: When researching topics or finding trends
+    
+    CLI-based research using `au` (automation toolkit):
+    - Hacker News trending discussions
+    - Reddit hot/top posts by subreddit
+    - YouTube transcript extraction
+    - Topic ideation workflow
+  </Accordion>
+  
+  <Accordion title="content-calendar" icon="calendar">
+    **Trigger**: When planning or updating the editorial calendar
+    
+    Editorial calendar management:
+    - Markdown table format at `content/calendar.md`
+    - Status tracking (idea → drafting → review → published)
+    - Topic category rotation
+    - Publishing cadence (1-2 posts/week)
+  </Accordion>
+  
+  <Accordion title="repurpose" icon="recycle">
+    **Trigger**: When turning a blog post into social content
+    
+    Multi-format content repurposing:
+    - Twitter/X threads (5-7 tweets)
+    - Reddit value-first posts
+    - Newsletter blurbs
+    - LinkedIn professional posts
+    - Telegram summaries
+  </Accordion>
+  
+  <Accordion title="social-distribution" icon="share-nodes">
+    **Trigger**: When sharing content on Reddit, X, or HN
+    
+    Platform-specific posting guidelines:
+    - Reddit: best subreddits, title formats, timing
+    - X/Twitter: thread structure, hashtag rules
+    - Hacker News: submission tips, engagement rules
+    - Always requires user approval before posting
+  </Accordion>
+  
+  <Accordion title="chinese-translation" icon="language">
+    **Trigger**: When translating English posts to Chinese
+    
+    Translation workflow for openclaws.blog:
+    - Simplified Chinese (zh-CN) targeting
+    - Category assignment (Chinese category ID: 1361)
+    - URL slug patterns (`/zh-{original-slug}`)
+    - Cultural adaptation guidelines
+  </Accordion>
+</AccordionGroup>
+
+## Creating New Skills
+
+### Skill File Structure
+
+1. Create a new `.md` file in `~/workspace/source/skills/`
+2. Add YAML frontmatter with `trigger` and `description`
+3. Write the skill instructions in markdown
+4. The skill will be automatically discovered on next restart
+
+**Example** (`~/workspace/source/skills/example.md`):
+
+```markdown
+---
+trigger: When the user asks about example workflows
+description: Example skill template
+---
+# Example Skill
+
+This is an example skill. Include:
+
+## Context
+Why this skill exists and when to use it.
+
+## Workflow
+Step-by-step instructions.
+
+## Commands
+Bash commands or tool usage examples.
+
+## Checklists
+- [ ] Item 1
+- [ ] Item 2
+
+## Examples
+Real examples from the codebase.
+```
+
+### Frontmatter Fields
+
+| Field | Required | Purpose |
+|-------|----------|--------|
+| `trigger` | Optional | When to load this skill (shown in system prompt) |
+| `description` | Optional | One-line summary (defaults to first H1 heading) |
+
+<Note>
+If `description` is omitted, the system uses the first heading from the markdown body. If no heading exists, it falls back to the filename (`~/workspace/source/src/skill-tool.ts:43-46`).
+</Note>
+
+### Reloading Skills
+
+Skills are cached at startup. To reload after adding/editing:
+
+```typescript
+import { reloadSkills } from "./skill-tool.js";
+reloadSkills(); // Force reload from disk
+```
+
+See `~/workspace/source/src/skill-tool.ts:66-68`.
+
+## Best Practices
+
+### When to Create a Skill
+
+Create a skill when:
+- ✅ The workflow is **repeatable** (used multiple times)
+- ✅ The instructions are **long** (>500 words)
+- ✅ The task has a **clear trigger** ("when publishing", "when auditing SEO")
+- ✅ The content would **clutter** the system prompt if inlined
+
+Don't create a skill for:
+- ❌ One-off tasks
+- ❌ Simple commands (just document in system prompt)
+- ❌ Frequently-needed context (keep in system prompt)
+
+### Skill vs System Prompt
+
+| Include in System Prompt | Move to Skill |
+|------------------------|---------------|
+| Core identity ("You are Warden...") | Step-by-step workflows |
+| Available tools list | Long checklists |
+| High-level guidelines | Format templates |
+| Task categories | Platform-specific rules |
+
+### Writing Effective Skills
+
+<Card title="Tip: Structure for Skimming" icon="list-check">
+Warden reads skills quickly. Use:
+- **Headings** for sections (H2, H3)
+- **Lists** for steps and options
+- **Code blocks** for commands
+- **Tables** for comparisons
+- **Bold** for key terms
+</Card>
+
+<Card title="Tip: Include Examples" icon="code">
+Real examples are more useful than abstract instructions. Reference actual file paths and line numbers from the codebase.
+</Card>
+
+<Card title="Tip: Assume No Memory" icon="brain">
+Skills are loaded fresh each time. Don't reference "the previous step" unless it's in the same skill file.
+</Card>
+
+## Skill Loading Performance
+
+Skills add context to the conversation. Consider token costs:
+
+| Skill | Approx. Tokens | When to Load |
+|-------|---------------|-------------|
+| `content-style` | ~2,500 | Every blog post write/edit |
+| `seo-audit` | ~1,500 | Before publishing |
+| `publish` | ~1,800 | When using wp-cli |
+| `co-marketing` | ~3,000 | Daily partner scans only |
+
+<Note>
+**Token efficiency tip**: Load skills just-in-time, not at the start of every conversation. The system prompt already includes skill summaries — load the full skill only when executing the task.
+</Note>
+
+## Debugging Skills
+
+### Check Available Skills
+
+```bash
+# List all discovered skills
+node -e "import('./src/skill-tool.js').then(m => console.log(m.listSkillNames()))"
+```
+
+### Test Skill Loading
+
+```bash
+# Load a skill and print its content
+node -e "import('./src/skill-tool.js').then(m => console.log(m.getSkillContent('content-style')))"
+```
+
+### View Skill Summaries
+
+```bash
+# See what appears in the system prompt
+node -e "import('./src/skill-tool.js').then(m => console.log(m.listSkillSummaries()))"
+```
+
+## Skill Composition
+
+Some tasks require multiple skills. Load them in sequence:
+
+**Example**: Publishing a new blog post
+
+1. Load `content-style` → write the post
+2. Load `seo-audit` → check on-page SEO
+3. Load `publish` → publish via wp-cli
+4. Load `social-distribution` → draft social posts
+
+Each skill is loaded when needed, keeping context focused.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Content Writing" icon="pen" href="/skills/content-writing">
+    Detailed guide to the content-style skill
+  </Card>
+  <Card title="Publishing" icon="upload" href="/skills/publishing">
+    WordPress management reference
+  </Card>
+  <Card title="System Prompt" icon="terminal" href="/concepts/architecture">
+    How skills are referenced in the system prompt
+  </Card>
+  <Card title="Tool System" icon="wrench" href="/tools/bash">
+    How the skill tool is implemented
+  </Card>
+</CardGroup>

@@ -1,0 +1,114 @@
+---
+title: 'warden dev'
+description: 'Run Warden in development mode with live console output'
+---
+
+## Overview
+
+The `dev` command starts Warden in development mode with TypeScript compilation on-the-fly. This is the primary command for running Warden locally during development and testing.
+
+## Usage
+
+```bash
+npm run dev
+```
+
+### With Logging
+
+The recommended way to run Warden is with output piped to both console and a log file:
+
+```bash
+npm run dev 2>&1 | tee log.txt
+```
+
+This captures all output (stdout and stderr) to `log.txt` while still displaying it in your terminal.
+
+## CLI Flags
+
+Warden accepts the following command-line flags to override default configuration:
+
+<ParamField path="--provider" type="string">
+  The AI provider to use for the agent. Supported values:
+  - `anthropic` - Use Anthropic's Claude API (default)
+  - `openrouter` - Use OpenRouter for multi-model access
+  
+  Falls back to `WARDEN_PROVIDER` environment variable if not specified.
+</ParamField>
+
+<ParamField path="--model" type="string">
+  The model ID to use with the specified provider.
+  
+  Examples:
+  - `claude-3-5-sonnet-20241022` (Anthropic)
+  - `anthropic/claude-3-5-sonnet` (OpenRouter)
+  
+  Falls back to `WARDEN_MODEL` environment variable if not specified.
+</ParamField>
+
+## Examples
+
+<CodeGroup>
+
+```bash Basic development
+npm run dev
+```
+
+```bash With logging
+npm run dev 2>&1 | tee log.txt
+```
+
+```bash Custom provider
+npm run dev -- --provider openrouter --model anthropic/claude-3-5-sonnet
+```
+
+```bash Override model
+npm run dev -- --model claude-3-opus-20240229
+```
+
+</CodeGroup>
+
+## What Runs
+
+When you start Warden in dev mode, the following components are initialized:
+
+1. **Task Runner** - Polls Supabase every 2 seconds for pending tasks
+2. **Telegram Bot** (optional) - Starts if `TELEGRAM_BOT_TOKEN` is set
+3. **REPL** - Interactive command-line interface for submitting tasks
+
+<Note>
+  The dev command uses `tsx` to compile and run TypeScript files on-the-fly. For production deployments, use `npm run build` to compile to JavaScript first.
+</Note>
+
+## Environment Variables
+
+Required environment variables (defined in `.env`):
+
+- `SUPABASE_URL` - Your Supabase project URL
+- `SUPABASE_ANON_KEY` - Supabase anonymous key
+- `ANTHROPIC_API_KEY` or `OPENROUTER_API_KEY` - API key for your AI provider
+
+Optional:
+- `TELEGRAM_BOT_TOKEN` - Enable Telegram integration
+- `WP_SSH` - Enable WordPress publishing commands
+- `WARDEN_PROVIDER` - Default AI provider
+- `WARDEN_MODEL` - Default model ID
+
+## Graceful Shutdown
+
+Warden handles `SIGINT` and `SIGTERM` signals gracefully:
+
+- Stops accepting new tasks
+- Completes any in-progress tasks
+- Closes database connections
+- Saves session state
+
+Press `Ctrl+C` to trigger a graceful shutdown.
+
+## Related Commands
+
+- [warden build](/commands/build) - Compile TypeScript for production
+- [warden cron-cli](/commands/cron-cli) - Manage scheduled jobs
+
+## Source Reference
+
+Implemented in `src/index.ts:1` (main orchestrator) and `src/config.ts:1` (CLI flag parsing).

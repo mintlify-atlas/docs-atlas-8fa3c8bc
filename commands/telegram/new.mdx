@@ -1,0 +1,59 @@
+---
+title: '/new'
+description: 'Reset your Telegram chat session and start fresh'
+---
+
+## Overview
+
+The `/new` command resets the agent session for your Telegram chat, clearing all conversation history and starting a fresh session. This is useful when you want to begin a new context or if the agent's responses seem stuck on previous context.
+
+## Usage
+
+```bash
+/new
+```
+
+## What It Does
+
+1. **Clears Session Context** — Removes all cached conversation history for your chat
+2. **Resets Agent State** — The next message will start a brand new agent session
+3. **Confirms Reset** — Sends "Session reset. Starting fresh." back to your chat
+
+<Note>
+Each Telegram chat has its own isolated session. Resetting your session does not affect other users' sessions or active tasks.
+</Note>
+
+## When to Use
+
+- The agent seems stuck referencing old context that's no longer relevant
+- You want to switch to a completely different topic
+- The conversation has become too long and the agent is slowing down
+- You're done with a project and want to start something new
+
+## Example
+
+```
+You: /new
+Warden: Session reset. Starting fresh.
+You: Help me set up a new cron job
+Warden: I'll help you create a new cron job...
+```
+
+<Tip>
+If you just want to see active tasks without clearing context, use [`/tasks`](/commands/telegram/tasks) instead.
+</Tip>
+
+## Technical Details
+
+Implementation location: `src/telegram.ts:26-31`
+
+```typescript
+if (text === "/new" || text.startsWith("/new@")) {
+  markNewSession(`telegram-${chatId}`);
+  console.log(`[telegram] Session reset for chat ${chatId}`);
+  await ctx.reply("Session reset. Starting fresh.").catch(() => {});
+  return;
+}
+```
+
+Session keys are stored as `telegram-<chatId>` and managed by `session-store.ts`. The session manager persists conversations to `~/.warden/sessions/` as JSONL files.

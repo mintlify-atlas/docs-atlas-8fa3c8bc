@@ -1,0 +1,323 @@
+---
+title: 'Telegram Interface'
+description: 'Remote task management via Telegram bot using grammY'
+---
+
+The Telegram bot provides a remote interface to Warden, allowing you to submit tasks and query status from anywhere. It uses long polling (no webhook required) via the [grammY](https://grammy.dev) framework.
+
+## Setup
+
+<Steps>
+  <Step title="Create a Telegram bot">
+    Open Telegram and message [@BotFather](https://t.me/botfather):
+    ```
+    /newbot
+    ```
+    Follow the prompts to choose a name and username.
+  </Step>
+  
+  <Step title="Get your bot token">
+    BotFather will reply with a token like:
+    ```
+    1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+    ```
+  </Step>
+  
+  <Step title="Add token to environment">
+    In your `.env` file:
+    ```bash
+    TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+    ```
+  </Step>
+  
+  <Step title="Restart Warden">
+    ```bash
+    npm run build && pm2 restart warden --update-env
+    ```
+    
+    You'll see in the logs:
+    ```
+    [telegram] Bot started (long polling)
+    ```
+  </Step>
+</Steps>
+
+<Note>
+The bot is **optional**. If `TELEGRAM_BOT_TOKEN` is not set, Warden runs without the Telegram interface.
+</Note>
+
+## Submitting Tasks
+
+Send any message to your bot to queue a task:
+
+```
+Check if the blog server is responding and restart it if needed
+```
+
+The bot replies:
+```
+Task queued: a3f8c2b4-5e7f-4a2b-9c1d-3e8f2a9b7c1d
+```
+
+When the task completes, the bot sends the result back to your chat:
+```
+Blog server is up. Response time: 87ms. No restart needed.
+```
+
+## Commands
+
+All REPL commands work in Telegram with `/command@your_bot_name` syntax for group chats.
+
+### Session Management
+
+<CodeGroup>
+```bash /new
+# Reset session for this chat
+/new
+
+# Bot reply:
+Session reset. Starting fresh.
+```
+
+```bash /context
+# Show agent context
+/context
+
+# Bot reply:
+-- Agent Context --
+Model: claude-3-5-sonnet-20241022
+Provider: anthropic
+Tools: bash, read, write, edit, glob, grep, wp_post_list, wp_post_create, ...
+Messages: 8
+System prompt: 8432 chars
+Est. context: ~18234 tokens (72936 chars)
+```
+</CodeGroup>
+
+### Task Inspection
+
+<CodeGroup>
+```bash /tasks
+# List active tasks
+/tasks
+
+# Bot reply:
+a3f8c2b4  running  23s  Check blog server health
+b9d4f1a7  pending  5s   Update npm dependencies
+```
+
+```bash /history
+# Show recent tasks (default: 3)
+/history 5
+
+# Bot reply:
+c7e2a9f4  done     1m  Deploy to production
+a3f8c2b4  running  23s Check blog server health
+f3b8c1d9  failed   2m  Invalid SSH key
+```
+
+```bash /activeTask
+# Show running task with tool steps
+/activeTask
+
+# Bot reply:
+ID: a3f8c2b4-...
+Status: running
+Age: 26s
+Instr: Check blog server health
+── Tool invocations (3 steps) ──
+3:15:22 PM  ▶ bash  {"command":"curl -I https://openclaws.blog"}
+3:15:23 PM  ✓ bash  HTTP/2 200...
+```
+
+```bash /task
+# Look up task by ID prefix
+/task a3f8
+
+# Bot reply:
+ID: a3f8c2b4-5e7f-4a2b-9c1d-3e8f2a9b7c1d
+Status: done
+Age: 2m
+Instr: Check blog server health
+Result: Blog server is up. Response time: 87ms.
+```
+</CodeGroup>
+
+### Cron Jobs
+
+<CodeGroup>
+```bash /cronJobs
+# List active scheduled jobs
+/cronJobs
+
+# Bot reply:
+d4a9f2b1  daily-v2cloud-scan  [0 8 * * *]  next: 3/11/2026, 8:00:00 AM  Monitor V2Cloud for content changes
+e8c3b5a7  biweekly-blog-publish  [0 9 * * 0,3]  next: 3/12/2026, 9:00:00 AM  Pick topic and publish blog post
+```
+
+```bash /deleteCron
+# Delete cron job by ID prefix
+/deleteCron e8c3
+
+# Bot reply:
+Deleted cron job: e8c3b5a7-... (biweekly-blog-publish)
+```
+</CodeGroup>
+
+### Skills
+
+<CodeGroup>
+```bash /skills
+# List available skills
+/skills
+
+# Bot reply:
+Available skills: content-style, co-marketing, seo-audit, aeo-audit, publish
+```
+
+```bash /skill
+# Run task with skill guide
+/skill publish Update homepage hero headline
+
+# Bot reply:
+Task queued (skill: publish): f2c8a4e9-...
+```
+</CodeGroup>
+
+## Source Reference
+
+The Telegram bot is implemented in `src/telegram.ts`:
+
+<CodeGroup>
+```typescript Bot Setup
+// src/telegram.ts:12-18
+export function startTelegram(): void {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    throw new Error("TELEGRAM_BOT_TOKEN must be set");
+  }
+  bot = new Bot(token);
+  // ... message handlers
+  bot.start();
+}
+```
+
+```typescript Task Queuing
+// src/telegram.ts:219-229
+try {
+  const task = await insertTask({
+    instruction: text,
+    metadata: { source: "telegram", chatId },
+  });
+  console.log(`[telegram] Message from ${chatId} → task ${task.id}`);
+  await ctx.reply(`Task queued: ${task.id}`);
+} catch (err) {
+  console.error("[telegram] Failed to insert task:", err);
+  await ctx.reply("Failed to queue task.").catch(() => {});
+}
+```
+
+```typescript Task Completion Notification
+// src/telegram.ts:251-270
+export async function notifyTaskComplete(task: Task): Promise<void> {
+  if (!bot || task.metadata?.source !== "telegram" || !task.metadata?.chatId) return;
+
+  const chatId = task.metadata.chatId as number;
+  const body = task.status === "done"
+    ? task.result || "(no output)"
+    : `Task failed: ${task.error || "unknown error"}`;
+
+  const truncated = body.length > TELEGRAM_MAX_LENGTH
+    ? body.slice(0, TELEGRAM_MAX_LENGTH - 3) + "..."
+    : body;
+
+  try {
+    await bot.api.sendMessage(chatId, truncated);
+    console.log(`[telegram] Sent reply to chat ${chatId} for task ${task.id}`);
+  } catch (err) {
+    console.error(`[telegram] Failed to send reply:`, err);
+  }
+}
+```
+</CodeGroup>
+
+## Session Persistence
+
+Each Telegram chat gets its own persistent session:
+
+- Session key: `telegram-{chatId}`
+- Stored in: `~/.warden/sessions/telegram-{chatId}.jsonl`
+- Survives restarts
+- Use `/new` to reset
+
+<Tip>
+This means the agent remembers your conversation history across multiple tasks. It knows what you asked about yesterday.
+</Tip>
+
+## Message Length Limits
+
+Telegram has a 4096-character limit per message. Long results are automatically truncated:
+
+```typescript
+const TELEGRAM_MAX_LENGTH = 4096;
+const truncated = body.length > TELEGRAM_MAX_LENGTH
+  ? body.slice(0, TELEGRAM_MAX_LENGTH - 3) + "..."
+  : body;
+```
+
+For very long outputs, use `/task <id>` in the REPL to see the full result in the database.
+
+## Architecture Flow
+
+```
+Telegram message
+        |
+        v
+  grammY bot receives event
+        |
+        v
+  insertTask() → Supabase (metadata: {source: "telegram", chatId})
+        |
+        v
+  runner.ts polls → claims → executes
+        |
+        v
+  Task complete → notifyTaskComplete()
+        |
+        v
+  bot.api.sendMessage() → Reply to chat
+```
+
+The bot never executes tasks directly—it's purely a frontend for the Supabase queue.
+
+## Security Considerations
+
+<Note>
+Your bot token is a secret credential. Anyone with the token can send messages as your bot.
+</Note>
+
+**Best practices:**
+
+1. Never commit `.env` to git
+2. Restrict bot access by only sharing the bot username with trusted users
+3. Consider adding authentication via Telegram user IDs (not implemented in current version)
+4. Run Warden on a trusted server, not on a public cloud instance
+
+## Long Polling vs Webhook
+
+Warden uses **long polling** (not webhooks) because:
+
+- No public URL required
+- Works on local networks and behind NAT
+- Simpler setup (no SSL certificate needed)
+- Ideal for personal/small-team deployments
+
+<Tip>
+If you need webhook mode for high-traffic deployments, grammY supports it—just modify `bot.start()` in `src/telegram.ts`.
+</Tip>
+
+## Related Documentation
+
+- See [REPL Interface](/interfaces/repl) for local task management
+- See [Session Persistence](/features/session-persistence) for how sessions work
+- See [Cron Jobs](/features/cron-jobs) for scheduled tasks

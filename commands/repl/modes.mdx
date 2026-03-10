@@ -1,0 +1,263 @@
+---
+title: "REPL Modes"
+description: "Understanding Warden's interactive REPL interface and command modes"
+---
+
+## Overview
+
+Warden's REPL (Read-Eval-Print Loop) provides an interactive terminal interface for managing tasks, monitoring execution, and inspecting agent state. The REPL runs alongside the HTTP server and task runner as one of three core subsystems.
+
+## Starting the REPL
+
+The REPL starts automatically when you run Warden:
+
+```bash
+npm run dev
+```
+
+You'll see the prompt:
+
+```
+Warden REPL. /new = reset, /context = show context, /tasks = active, /cronJobs = cron, /quit = exit.
+warden>
+```
+
+## Command Categories
+
+### Session Management
+
+Control your agent conversation context:
+
+<Tabs>
+  <Tab title="/new">
+    Reset the REPL session and start fresh. Clears all conversation history and creates a new agent session.
+    
+    ```bash
+    warden> /new
+    Session reset. Starting fresh.
+    ```
+    
+    **Use when:** You want to start a new conversation without context from previous messages.
+  </Tab>
+  
+  <Tab title="/context">
+    Display the current agent session context, including model, provider, tools, message count, and estimated token usage.
+    
+    ```bash
+    warden> /context
+    ── Agent Context ──
+      Model:    claude-sonnet-4-20250514
+      Provider: anthropic
+      Tools:    bash, read, write, edit, glob, grep
+      Messages: 12
+      System prompt: 2847 chars
+      
+      Estimated context size: ~15234 tokens (60936 chars)
+    ```
+    
+    **Use when:** You need to verify which model is active or check context window usage.
+  </Tab>
+  
+  <Tab title="/quit">
+    Exit the REPL and shut down Warden.
+    
+    ```bash
+    warden> /quit
+    Goodbye.
+    ```
+    
+    **Alias:** `/exit` works the same way.
+  </Tab>
+</Tabs>
+
+### Task Monitoring
+
+Inspect running and historical tasks:
+
+<Tabs>
+  <Tab title="/tasks">
+    List all active tasks currently in the queue or running.
+    
+    ```bash
+    warden> /tasks
+      a3f9b21c  running    45s  Check server logs for errors
+      7c2e8d9f  pending    12s  Update documentation for new API
+    ```
+    
+    Shows: Task ID (first 8 chars), status, age, and instruction preview (truncated to 60 chars).
+  </Tab>
+  
+  <Tab title="/history">
+    View recent completed tasks. Optionally specify how many to show (default: 3).
+    
+    ```bash
+    warden> /history 5
+      f8a3c291  done       2h  Fix type errors in runner.ts
+      9b4e7a12  failed     4h  Deploy to production server
+      6d2c8e3f  done       5h  Write unit tests for session store
+    ```
+    
+    **Usage:** `/history [count]`
+  </Tab>
+  
+  <Tab title="/activeTask">
+    Display detailed information about the currently running task, including all tool invocations.
+    
+    ```bash
+    warden> /activeTask
+      ID:      a3f9b21c-4d5e-6f7a-8b9c-0d1e2f3a4b5c
+      Status:  running
+      Age:     1m
+      Instr:   Check server logs for errors
+      ── Tool invocations (8 steps) ──
+      14:23:45  ▶ bash  {"command":"tail -n 100 /var/log/server.log"}
+      14:23:46  ✓ bash  [log output...]
+    ```
+  </Tab>
+  
+  <Tab title="/task">
+    Show details for a specific task by ID prefix.
+    
+    ```bash
+    warden> /task a3f9
+      ID:      a3f9b21c-4d5e-6f7a-8b9c-0d1e2f3a4b5c
+      Status:  done
+      Age:     5m
+      Instr:   Check server logs for errors
+      Result:  Found 3 errors in authentication module...
+    ```
+    
+    **Usage:** `/task <id-prefix>` — Match tasks by the first few characters of their ID.
+  </Tab>
+</Tabs>
+
+### Cron Job Management
+
+Manage scheduled tasks:
+
+<Tabs>
+  <Tab title="/cronJobs">
+    List all active cron jobs with their schedules and next run times.
+    
+    ```bash
+    warden> /cronJobs
+      3a7b9c2d  daily-backup  [0 2 * * *]  next: 2026-03-11 02:00:00  Backup database to S3
+      8f4e1a6b  health-check  [every 300000ms]  next: 2026-03-10 14:35:00  Check all services
+    ```
+  </Tab>
+  
+  <Tab title="/deleteCron">
+    Delete a cron job by ID prefix.
+    
+    ```bash
+    warden> /deleteCron 3a7b
+    Deleted cron job: 3a7b9c2d (daily-backup)
+    ```
+    
+    **Usage:** `/deleteCron <id-prefix>`
+    
+    <Warning>
+      This action is permanent and cannot be undone. The cron job will no longer run.
+    </Warning>
+  </Tab>
+</Tabs>
+
+### Skills
+
+Use predefined workflows and knowledge bases:
+
+<Tabs>
+  <Tab title="/skills">
+    List all available skill guides.
+    
+    ```bash
+    warden> /skills
+    Available skills: content-style, co-marketing, seo-audit, aeo-audit, publish
+    ```
+    
+    Skills are markdown files in the `skills/` directory that provide specialized instructions for the agent.
+  </Tab>
+  
+  <Tab title="/skill">
+    Queue a task using a specific skill guide.
+    
+    ```bash
+    warden> /skill seo-audit Check homepage for optimization issues
+    Task queued (skill: seo-audit): f8a3c291-...
+    ```
+    
+    **Usage:** `/skill <skill-name> [instruction]`
+    
+    The skill content is automatically prepended to your instruction, giving the agent specialized knowledge for that task.
+  </Tab>
+</Tabs>
+
+## Direct Instructions
+
+Any input that doesn't start with `/` is treated as a task instruction and queued for execution:
+
+```bash
+warden> Fix the type error in src/runner.ts
+Task queued: a3f9b21c-4d5e-6f7a-8b9c-0d1e2f3a4b5c
+```
+
+The task will be picked up by the runner and executed using the current session context.
+
+<Note>
+  The REPL maintains a persistent session across tasks, so the agent remembers previous conversations. Use `/new` to start fresh.
+</Note>
+
+## Keyboard Shortcuts
+
+- **Ctrl+C** — Exit the REPL (same as `/quit`)
+- **Ctrl+D** — End of input (also exits)
+- **Up/Down arrows** — Navigate command history (standard readline)
+
+## Session Persistence
+
+The REPL uses a cached session stored in `~/.warden/sessions/repl.jsonl`. This means:
+
+- Conversation history persists across Warden restarts
+- The agent can reference previous tasks and context
+- Use `/new` to explicitly reset when needed
+
+## Common Workflows
+
+### Debugging a Failed Task
+
+```bash
+warden> /history 10
+  # Find the failed task ID
+
+warden> /task f8a3
+  # View error details
+  
+warden> Fix the error in the previous task
+  # Queue a new task with context
+```
+
+### Monitoring Long-Running Tasks
+
+```bash
+warden> /activeTask
+  # Check progress and tool invocations
+  
+warden> /context
+  # Verify token usage and message count
+```
+
+### Managing Scheduled Jobs
+
+```bash
+warden> /cronJobs
+  # List all scheduled tasks
+  
+warden> /deleteCron 3a7b
+  # Remove a job that's no longer needed
+```
+
+## Related Documentation
+
+- [Session Management](/commands/repl/session-management) — Deep dive into session persistence and context
+- [Task Submission](/api/task-submission) — HTTP API for programmatic task creation
+- [Cron Jobs](/features/cron-jobs) — Setting up scheduled tasks

@@ -1,0 +1,355 @@
+---
+title: 'warden cron-cli'
+description: 'Manage scheduled jobs and automated tasks'
+---
+
+## Overview
+
+The `cron-cli` command manages Warden's scheduled jobs. It supports three scheduling modes: **cron expressions**, **one-shot times**, and **repeat intervals**.
+
+## Usage
+
+```bash
+npx tsx src/cron-cli.ts <command> [options]
+```
+
+## Commands
+
+### add
+
+Create a new cron job.
+
+```bash
+npx tsx src/cron-cli.ts add [options]
+```
+
+<ParamField path="--name" type="string" required>
+  Human-readable job name (e.g. "daily-backup", "weekly-report")
+</ParamField>
+
+<ParamField path="--instruction" type="string" required>
+  The task instruction to run when the job triggers
+</ParamField>
+
+<ParamField path="--cron" type="string">
+  Cron expression (e.g. "0 9 * * *" for 9am daily)
+  
+  Standard 5-field format: `minute hour day month weekday`
+  
+  Exactly one of `--cron`, `--at`, or `--every` is required.
+</ParamField>
+
+<ParamField path="--at" type="string">
+  One-shot ISO datetime (e.g. "2025-01-15T09:00:00Z")
+  
+  Job runs once at the specified time, then deletes itself (unless `--delete-after-run` is false).
+  
+  Exactly one of `--cron`, `--at`, or `--every` is required.
+</ParamField>
+
+<ParamField path="--every" type="string">
+  Repeat interval (e.g. "30s", "5m", "2h", "1d")
+  
+  Supported units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days)
+  
+  Exactly one of `--cron`, `--at`, or `--every` is required.
+</ParamField>
+
+<ParamField path="--tz" type="string" default="UTC">
+  IANA timezone (e.g. "America/Los_Angeles", "Europe/London")
+  
+  Only applies to `--cron` expressions. Ignored for `--at` and `--every`.
+</ParamField>
+
+<ParamField path="--metadata" type="string">
+  Task metadata JSON (e.g. `'{"source":"telegram","chatId":123}'`)
+  
+  Used to route task results back to the original source (e.g. Telegram chat).
+  
+  Falls back to `WARDEN_TASK_METADATA` environment variable if not specified.
+</ParamField>
+
+<ParamField path="--delete-after-run" type="boolean">
+  Delete the job after it runs (default: true for `--at`, false otherwise)
+</ParamField>
+
+### list
+
+List all cron jobs.
+
+```bash
+npx tsx src/cron-cli.ts list [options]
+```
+
+<ParamField path="--enabled-only" type="boolean" default={false}>
+  Only show enabled jobs
+</ParamField>
+
+<ParamField path="--json" type="boolean" default={false}>
+  Output as JSON instead of human-readable format
+</ParamField>
+
+### get
+
+Show details of a specific cron job.
+
+```bash
+npx tsx src/cron-cli.ts get <id>
+```
+
+Outputs the full job object as JSON.
+
+### update
+
+Update an existing cron job.
+
+```bash
+npx tsx src/cron-cli.ts update <id> [options]
+```
+
+<ParamField path="--name" type="string">
+  New job name
+</ParamField>
+
+<ParamField path="--instruction" type="string">
+  New task instruction
+</ParamField>
+
+<ParamField path="--cron" type="string">
+  New cron expression (changes schedule_type to "cron")
+</ParamField>
+
+<ParamField path="--at" type="string">
+  New one-shot time (changes schedule_type to "at")
+</ParamField>
+
+<ParamField path="--every" type="string">
+  New repeat interval (changes schedule_type to "every")
+</ParamField>
+
+<ParamField path="--tz" type="string">
+  New timezone
+</ParamField>
+
+<ParamField path="--metadata" type="string">
+  New task metadata JSON
+</ParamField>
+
+<ParamField path="--enable" type="boolean">
+  Enable the job
+</ParamField>
+
+<ParamField path="--disable" type="boolean">
+  Disable the job
+</ParamField>
+
+<ParamField path="--delete-after-run" type="boolean">
+  Update delete-after-run setting
+</ParamField>
+
+<Note>
+  Updating the schedule (`--cron`, `--at`, or `--every`) automatically recomputes `next_run_at`.
+</Note>
+
+### remove
+
+Delete a cron job.
+
+```bash
+npx tsx src/cron-cli.ts remove <id>
+```
+
+### run
+
+Manually trigger a cron job immediately (does not affect scheduled runs).
+
+```bash
+npx tsx src/cron-cli.ts run <id>
+```
+
+Creates a new task in the queue with the job's instruction and metadata.
+
+## Examples
+
+<CodeGroup>
+
+```bash Daily cron job
+npx tsx src/cron-cli.ts add \
+  --name "daily-backup" \
+  --cron "0 2 * * *" \
+  --tz "America/Los_Angeles" \
+  --instruction "Run database backup and upload to S3"
+```
+
+```bash One-shot reminder
+npx tsx src/cron-cli.ts add \
+  --name "meeting-reminder" \
+  --at "2025-03-15T14:30:00Z" \
+  --instruction "Send Slack reminder for quarterly review meeting"
+```
+
+```bash Repeat interval
+npx tsx src/cron-cli.ts add \
+  --name "health-check" \
+  --every "5m" \
+  --instruction "Check API health and log status"
+```
+
+```bash With Telegram routing
+npx tsx src/cron-cli.ts add \
+  --name "morning-report" \
+  --cron "0 9 * * 1-5" \
+  --tz "America/New_York" \
+  --instruction "Generate daily sales report" \
+  --metadata '{"source":"telegram","chatId":123456789}'
+```
+
+```bash List all jobs
+npx tsx src/cron-cli.ts list
+```
+
+```bash Disable a job
+npx tsx src/cron-cli.ts update abc123 --disable
+```
+
+```bash Manually run a job
+npx tsx src/cron-cli.ts run abc123
+```
+
+</CodeGroup>
+
+## Real-World Example: Content Pipeline
+
+Warden uses cron jobs to automate content marketing for openclaws.blog:
+
+```bash Daily V2Cloud scan
+npx tsx src/cron-cli.ts add \
+  --name "daily-v2cloud-scan" \
+  --cron "0 8 * * *" \
+  --tz "America/Los_Angeles" \
+  --instruction "Monitor V2Cloud site for content changes and generate complementary topic ideas"
+```
+
+```bash Biweekly blog publish
+npx tsx src/cron-cli.ts add \
+  --name "biweekly-blog-publish" \
+  --cron "0 9 * * 0,3" \
+  --tz "America/Los_Angeles" \
+  --instruction "Review topic ideas, write full blog post, and publish to WordPress"
+```
+
+```bash Daily walk reminder
+npx tsx src/cron-cli.ts add \
+  --name "ting-walk-reminder" \
+  --cron "0 15 * * *" \
+  --tz "America/Los_Angeles" \
+  --instruction "Send walk reminder to Telegram" \
+  --metadata '{"source":"telegram","chatId":123456789}'
+```
+
+## Schedule Types Explained
+
+### Cron Expressions
+
+Standard 5-field cron syntax:
+
+```
+┌───────────── minute (0-59)
+│ ┌───────────── hour (0-23)
+│ │ ┌───────────── day of month (1-31)
+│ │ │ ┌───────────── month (1-12)
+│ │ │ │ ┌───────────── day of week (0-6, Sunday=0)
+│ │ │ │ │
+* * * * *
+```
+
+Examples:
+- `0 9 * * *` - Every day at 9am
+- `0 9 * * 1-5` - Weekdays at 9am
+- `0 */2 * * *` - Every 2 hours
+- `0 0 1 * *` - First day of each month at midnight
+
+### One-Shot Times
+
+ISO 8601 datetime format:
+
+```
+2025-03-15T14:30:00Z        # UTC
+2025-03-15T14:30:00-07:00   # Pacific Time
+```
+
+Job runs once at the specified time, then deletes itself.
+
+### Repeat Intervals
+
+Human-readable intervals:
+
+- `30s` - Every 30 seconds
+- `5m` - Every 5 minutes
+- `2h` - Every 2 hours
+- `1d` - Every 24 hours
+
+## Metadata and Task Routing
+
+The `--metadata` flag controls where task results are sent:
+
+```json
+{
+  "source": "telegram",
+  "chatId": 123456789
+}
+```
+
+When a cron job completes, Warden uses this metadata to route the result back to the original Telegram chat.
+
+<Note>
+  Metadata can also be set via the `WARDEN_TASK_METADATA` environment variable. CLI flag takes precedence.
+</Note>
+
+## Database Schema
+
+Cron jobs are stored in the `warden_cron_jobs` Supabase table:
+
+```sql
+CREATE TABLE warden_cron_jobs (
+  id UUID PRIMARY KEY,
+  name TEXT NOT NULL,
+  instruction TEXT NOT NULL,
+  schedule_type TEXT NOT NULL,  -- 'cron' | 'at' | 'every'
+  cron_expression TEXT,
+  at_time TIMESTAMPTZ,
+  every_ms INTEGER,
+  cron_timezone TEXT DEFAULT 'UTC',
+  task_metadata JSONB,
+  enabled BOOLEAN DEFAULT true,
+  delete_after_run BOOLEAN DEFAULT false,
+  last_run_at TIMESTAMPTZ,
+  next_run_at TIMESTAMPTZ,
+  last_task_id UUID,
+  run_count INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+## How Scheduling Works
+
+Warden's scheduler (in `runner.ts`) polls for jobs every 2 seconds:
+
+1. Query jobs where `enabled = true` AND `next_run_at <= NOW()`
+2. Create a task in `warden_tasks` with the job's instruction and metadata
+3. Update job's `last_run_at`, `next_run_at`, and `run_count`
+4. If `delete_after_run = true`, delete the job
+
+<Note>
+  The scheduler uses database-level locking to prevent duplicate runs in multi-instance deployments.
+</Note>
+
+## Related Commands
+
+- [warden dev](/commands/dev) - Start Warden (runs scheduler)
+- [warden build](/commands/build) - Compile for production
+
+## Source Reference
+
+Implemented in `src/cron-cli.ts:1` (CLI) and `src/runner.ts:1` (scheduler).

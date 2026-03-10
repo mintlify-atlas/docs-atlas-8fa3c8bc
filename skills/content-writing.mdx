@@ -1,0 +1,406 @@
+---
+title: 'Content Writing Skill'
+description: 'Structure, style, and audience rules for blog posts'
+icon: 'pen'
+---
+
+## Overview
+
+The `content-style` skill defines the writing structure, style guide, and audience targeting for **openclaws.blog**. Load this skill when writing or editing blog content.
+
+**Skill file**: `~/workspace/source/skills/content-style.md`
+
+**Trigger**: When writing or editing blog content for openclaws.blog
+
+## Target Audience
+
+All content targets **non-technical business professionals** at small-to-medium businesses — the same audience as co-marketing partner V2Cloud.com.
+
+### Primary Personas
+
+<CardGroup cols={2}>
+  <Card title="IT Managers" icon="server">
+    Evaluating tools for their teams. Care about security, reliability, and total cost of ownership.
+  </Card>
+  <Card title="Business Owners" icon="briefcase">
+    Looking for efficiency gains and cost savings. Not technical, need plain-language explanations.
+  </Card>
+  <Card title="SMB Decision-Makers" icon="user-tie">
+    Making purchase decisions for 10-200 person companies. Value time-to-value and support quality.
+  </Card>
+  <Card title="Marketing Leaders" icon="bullhorn">
+    Exploring AI for content and automation. Interested in practical use cases, not developer tools.
+  </Card>
+</CardGroup>
+
+### Technical Level
+
+**Low-to-moderate**. Assume readers understand business concepts but NOT developer tools.
+
+- ✅ They ask: "Should my team adopt this?"
+- ❌ They don't ask: "How do I deploy this?"
+
+### Industries
+
+Healthcare, education, finance, marketing agencies, engineering firms.
+
+## Audience Rules
+
+### Never Use Unexplained Jargon
+
+<Warning>
+**Forbidden without inline explanation**: SSH, Docker, pm2, pyenv, webpack, API keys, vCPUs, egress bandwidth, ACID transactions, IAM, networking configs, process managers.
+</Warning>
+
+### Replace Developer Terms
+
+Use business equivalents:
+
+| Developer Term | Business Equivalent |
+|---------------|--------------------|
+| SSH | Remote access |
+| API keys | Service credentials (the digital passwords that connect your tools) |
+| vCPUs | Virtual processors |
+| Egress bandwidth | Data transfer fees |
+| Noisy neighbors | Other users competing for the same resources |
+| IAM / networking | Security configuration |
+| Process manager | Automatic restart software |
+| Docker container | Isolated software package |
+
+### Introduce Branded Metaphors
+
+Repeat metaphors as anchors throughout the post (V2Cloud style):
+
+- **"The Infrastructure Gap"** — the gap between what laptops provide and what always-on agents need
+- **"The Always-On Tax"** — the recurring costs of keeping automation running
+- **"The Laptop Trap"** — running agents on a laptop that gets closed
+- **"The Deployment Desert"** — the difficulty of deploying self-hosted tools
+- **"The Separation Principle"** — dedicated hardware for dedicated tasks
+
+**Usage**: Bold on first use, then reference naturally throughout.
+
+### Explain Concepts Inline
+
+Use parenthetical definitions:
+
+> "Total Cost of Ownership (what you actually pay when you add up every expense over time) matters more than the sticker price."
+
+### Frame as Business Outcomes
+
+- ✅ Revenue impact, time saved, client satisfaction, billable hours recovered
+- ❌ Technical elegance, performance benchmarks, code quality
+
+### Case Study Personas
+
+Use **business roles**, not developer roles:
+
+- ✅ Agency owners, marketing VPs, operations managers
+- ❌ Developers, engineers, DevOps specialists
+
+## Structure Template
+
+Every blog post follows this structure:
+
+```markdown
+# [Title: Compelling, Benefit-Driven or Question-Based]
+
+[Opening Hook: 2-3 paragraphs]
+- Lead with a statistic, market data, or compelling question
+- Establish the problem or opportunity
+- Bridge to your thesis
+
+## Key Takeaways
+- 3-5 bullet points summarizing the post's main points
+- Scannable preview for skimmers
+
+## Context / Why This Matters
+- Market trends, adoption data, or industry context
+- External citations where possible
+
+## The Problem
+- Specific pain points with bold key terms
+### [Pain Point 1]
+### [Pain Point 2]
+### [Pain Point 3]
+
+## The Solution
+### [Benefit 1]
+### [Benefit 2]
+### [Benefit 3]
+- Bold key concepts on first mention
+- Use case examples within subsections
+
+## Comparison (Table)
+| Feature | Approach A | Approach B | Our Approach |
+|---------|-----------|-----------|-------------|
+| [Criteria 1] | ... | ... | ... |
+- At least one comparison table (3+ columns, 5+ rows)
+
+## Real-World Example
+[Narrative case study with a named persona]
+- Before/after structure showing concrete improvement
+
+## Getting Started / Implementation
+1. [Step 1]
+2. [Step 2]
+3. [Step 3]
+- Numbered steps (3-5), practical and actionable
+
+## Frequently Asked Questions
+**Q: [Question 1]?**
+A: [Answer in 50-150 words]
+
+- 3-6 Q&A pairs
+- Address common objections and clarifications
+```
+
+<Note>
+**Word count target**: 2,000-3,000 words. No section should exceed ~600 words — break long sections into subsections.
+</Note>
+
+## Narrative Pattern
+
+Every post follows: **Problem → Solution → Proof → Action**
+
+1. **Problem** — Identify a real pain point with specifics (not vague)
+2. **Solution** — Present the approach with clear benefits
+3. **Proof** — Case study, comparison table, or data backing the claim
+4. **Action** — Getting started steps + FAQ to remove objections
+
+## Topic Selection: Problem-First
+
+Every topic must start from a **real problem people are searching for** — never from a product feature or technology name.
+
+### The Rule
+
+<div style={{display: 'flex', gap: '1rem', marginBottom: '1rem'}}>
+  <div style={{flex: 1, padding: '1rem', background: '#fee', borderRadius: '0.5rem'}}>
+    <strong>❌ Wrong</strong>
+    <p>"Why Mac Mini is great for AI agents" (product-first)</p>
+  </div>
+  <div style={{flex: 1, padding: '1rem', background: '#efe', borderRadius: '0.5rem'}}>
+    <strong>✅ Right</strong>
+    <p>"My automation stops every time I close my laptop" (problem-first)</p>
+  </div>
+</div>
+
+<div style={{display: 'flex', gap: '1rem'}}>
+  <div style={{flex: 1, padding: '1rem', background: '#fee', borderRadius: '0.5rem'}}>
+    <strong>❌ Wrong</strong>
+    <p>"OpenClaw features overview" (feature-first)</p>
+  </div>
+  <div style={{flex: 1, padding: '1rem', background: '#efe', borderRadius: '0.5rem'}}>
+    <strong>✅ Right</strong>
+    <p>"How to keep your business running 24/7 without hiring night staff" (problem-first)</p>
+  </div>
+</div>
+
+### How to Find Problem-First Topics
+
+1. **What are people complaining about?** — Reddit, forums, support threads reveal real frustrations
+2. **What are they Googling?** — "How to..." and "Why does..." queries reveal problems
+3. **What does V2Cloud's audience struggle with?** — Slow laptops, expensive cloud bills, security worries, scaling without hiring
+4. **What would someone ask their IT person?** — That's the title of your post
+
+### Topic Framing Formula
+
+```
+[Audience's problem] → [Why it's getting worse] → [Our solution approach]
+```
+
+**Examples**:
+
+| Problem People Have | Our Angle |
+|--------------------|-----------|
+| "My laptop freezes when I run AI tools and Zoom at the same time" | Dedicated hardware separates workloads |
+| "Cloud bills keep going up and I can't predict costs" | One-time hardware vs monthly subscriptions |
+| "I don't know if AI automation is safe for my business data" | Physical isolation = simplest security model |
+| "My competitor is showing up in AI search results and I'm not" | AEO strategy for brand control |
+| "I want to automate but I'm not technical" | No-code agent setup on Mac Mini |
+
+### Title Test
+
+Before writing, ask: **"Would a business owner type this into Google?"**
+
+If no, reframe until the answer is yes.
+
+## Writing Style
+
+### Tone
+
+Professional yet conversational. Use second-person ("you") and rhetorical questions.
+
+### Voice
+
+Active voice. Prefer:
+- ✅ "An AI agent processes your data"
+- ❌ "Your data is processed by an AI agent"
+
+### Bold
+
+Use bold for:
+- Key terms on first mention
+- Critical statements
+- Section emphasis
+
+### Sentence Length
+
+Mix short punchy statements with longer explanatory ones.
+
+**Example**:
+> Your laptop is great for building agents. It's terrible for running them. Here's why: every time you close the lid, your automation stops. Background processes pause. API connections drop. When you reopen it hours later, your agent is behind schedule.
+
+## Formatting Rules
+
+<Accordion title="Headings">
+- **H1** for title (one per page)
+- **H2** for major sections
+- **H3** for subsections
+- Never skip heading levels
+</Accordion>
+
+<Accordion title="Lists">
+- **Bulleted** for features, benefits, options
+- **Numbered** for steps, sequences, rankings
+</Accordion>
+
+<Accordion title="Tables">
+At least **one comparison table** per post. Tables make complex comparisons scannable and improve SEO.
+</Accordion>
+
+<Accordion title="Bold Patterns">
+- Key terms: "**Total Cost of Ownership** matters more than sticker price"
+- Concept names: "This is **The Always-On Tax**"
+- Critical economic arguments: "**You're paying for compute you don't use**"
+</Accordion>
+
+<Accordion title="Emojis">
+No emojis in body text. Keep it professional.
+</Accordion>
+
+## Opening Hook Formulas
+
+Start strong with one of these patterns:
+
+<CardGroup cols={2}>
+  <Card title="Statistic + Source" icon="chart-line">
+    "Eight out of ten companies have already deployed AI agents in production."
+  </Card>
+  <Card title="Rhetorical Question" icon="question">
+    "Who wouldn't want a digital workforce that never sleeps?"
+  </Card>
+  <Card title="Scenario" icon="image">
+    "It's Monday morning. Your laptop is already grinding to a halt as you open Slack, Chrome, and your AI assistant."
+  </Card>
+  <Card title="Contrast" icon="scale-balanced">
+    "Your laptop is great for building agents. It's terrible for running them."
+  </Card>
+</CardGroup>
+
+## CTA Placement
+
+- **Mid-content CTA** — After the solution section. Link to a related post or GitHub repo.
+- **Closing CTA** — Before FAQ. Subscription form, GitHub link, or related reading.
+
+## Product Messaging
+
+### OpenClaw
+
+> Your own personal AI assistant. Any OS. Any Platform. The lobster way.
+
+**Key angles**:
+- Local-first AI (privacy, no cloud dependency)
+- Open-source alternative to closed assistants
+- Cross-platform (Linux, Mac, Windows)
+- Extensible with custom tools
+
+**GitHub**: https://github.com/openclaw/openclaw
+
+### Warden
+
+> A CLI agent that runs 24/7, automates workflows, publishes content, and monitors the competitive landscape.
+
+**Key angles**:
+- Always-on automation (no laptop required)
+- CLI-native (for developers and power users)
+- Task queue architecture (Supabase-backed)
+- Self-hosted (full control, no SaaS fees)
+
+**GitHub**: https://github.com/qwibitai/warden (or link to actual repo)
+
+### Messaging Focus
+
+When writing about these products, emphasize:
+- ✅ Business efficiency
+- ✅ Cost savings (vs cloud SaaS)
+- ✅ Privacy / data sovereignty
+- ✅ Always-on reliability
+- ✅ Practical automation that non-technical teams can benefit from
+
+## SEO Checklist
+
+Before publishing, verify:
+
+- [ ] **Title tag** — Under 60 characters, includes primary keyword, compelling
+- [ ] **Meta description** — 150-160 characters, includes keyword, has a call to action
+- [ ] **URL slug** — Short, keyword-rich, hyphenated (e.g. `/local-ai-assistant-guide`)
+- [ ] **H1** — Matches title tag intent (can differ slightly for readability)
+- [ ] **Internal links** — Link to at least 2 other posts on openclaws.blog
+- [ ] **External links** — Cite at least 1-2 authoritative sources
+- [ ] **Images** — Alt text describes the image and includes keyword where natural
+- [ ] **Target keyword** — Appears in first 100 words, H2, and naturally throughout
+
+<Note>
+For the full SEO audit checklist, load the `seo-audit` skill. See [SEO Audit](/skills/seo-audit).
+</Note>
+
+## Loading the Skill
+
+Warden loads this skill automatically when the task involves writing blog content. You can also load it explicitly:
+
+```bash
+# In a task instruction
+"Write a blog post about X. Use the content-style skill."
+```
+
+The skill is injected as context, guiding the agent through structure, style, and audience rules.
+
+## Real Example
+
+Here's how the skill guides a blog post:
+
+**User request**: "Write a post about why businesses should use dedicated hardware for AI agents."
+
+**Warden's workflow**:
+1. Load `content-style` skill → understand audience, structure, and style rules
+2. Identify the problem: "My laptop can't handle running agents 24/7"
+3. Draft title: "Why Your Laptop Is Killing Your AI Automation (And What To Do About It)" (problem-first, under 60 chars)
+4. Write opening hook: Scenario pattern ("It's Monday morning...")
+5. Structure: Problem (3 pain points) → Solution (3 benefits) → Comparison table → Case study → Getting Started → FAQ
+6. Apply audience rules: Replace "SSH" with "remote access", introduce "The Laptop Trap" metaphor, frame everything as business outcomes
+7. SEO: Target keyword "dedicated hardware AI agents" in title, H1, first 100 words, 2 H2s
+8. Word count: 2,500 words
+9. Load `seo-audit` skill → verify checklist before publishing
+
+## Related Skills
+
+<CardGroup cols={2}>
+  <Card title="SEO Audit" icon="chart-line" href="/skills/seo-audit">
+    On-page SEO checklist to run after writing
+  </Card>
+  <Card title="Publishing" icon="upload" href="/skills/publishing">
+    Publish the finished post to WordPress
+  </Card>
+  <Card title="Content Calendar" icon="calendar">
+    Plan and track blog post topics
+  </Card>
+  <Card title="Repurpose" icon="recycle">
+    Turn the post into social media content
+  </Card>
+</CardGroup>
+
+## Source Code Reference
+
+- **Skill file**: `~/workspace/source/skills/content-style.md`
+- **Skill loader**: `~/workspace/source/src/skill-tool.ts:103-137`
+- **System prompt integration**: `~/workspace/source/src/prompt.ts:1-89`

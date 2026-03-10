@@ -1,0 +1,372 @@
+---
+title: Testing
+description: Writing and running tests for Warden
+---
+
+Warden uses Node's built-in test runner (`node:test`) for E2E and integration tests. All tests run against a live Supabase instance and verify real agent behavior.
+
+## Running Tests
+
+<Steps>
+  <Step title="Start the dev server">
+    Tests require the Warden dev server to be running. Open a terminal and start it:
+
+    ```bash
+    npm run dev 2>&1 | tee log.txt
+    ```
+
+    The `tee` command pipes output to both the terminal and `log.txt`, which tests inspect to verify behavior.
+  </Step>
+
+  <Step title="Run the test suite">
+    In a separate terminal, run all tests:
+
+    ```bash
+    npm test
+    ```
+
+    This executes all `*.test.ts` files in the `tests/` directory using `tsx`.
+  </Step>
+
+  <Step title="Verify results">
+    All tests should pass. If any fail, check:
+    - Dev server is running and healthy
+    - Supabase connection is active (check `.env` credentials)
+    - No tasks are stuck in "running" state from previous crashes
+  </Step>
+</Steps>
+
+## Test Architecture
+
+Warden tests are **end-to-end** — they insert real tasks into Supabase, wait for the runner to process them, and verify the results.
+
+### Test Files
+
+| File | Purpose | Key Scenarios |
+|------|---------|---------------|
+| `tests/resolve-metadata.test.ts` | Metadata inheritance in cron jobs | Cron jobs inherit `WARDEN_TASK_METADATA` env var, fired tasks inherit from cron job, results route to Telegram |
+| `tests/session-persistence.test.ts` | Session continuity across tasks | Telegram/REPL tasks get persistent sessions, cron tasks are stateless, context is retained between tasks |
+| `tests/session-reset.test.ts` | `/new` command behavior | `SessionManager.create()` vs `continueRecent()`, conversation history cleared after reset |
+
+### Test Helper: `waitFor`
+
+All tests use a `waitFor` helper to poll for async conditions:
+
+```typescript tests/resolve-metadata.test.ts
+async function waitFor(
+  fn: () => Promise<boolean>,
+  timeoutMs: number,
+  intervalMs = 2000
+): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (await fn()) return;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error(`Timed out after ${timeoutMs}ms`);
+}
+```
+
+Example usage:
+
+```typescript
+// Wait for task to complete (up to 2 minutes)
+await waitFor(async () => {
+  const task = await getTask(taskId);
+  return task?.status === "done" || task?.status === "failed";
+}, 120_000);
+```
+
+<Tip>
+Set generous timeouts for tests that wait for LLM responses. Use `{ timeout: 180_000 }` (3 minutes) in the test declaration.
+</Tip>
+
+## Writing New Tests
+
+### 1. E2E Task Flow Test
+
+To test a new feature that involves task execution:
+
+```typescript
+import "dotenv/config";
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { insertTask, getTask } from "../src/data_model/index.js";
+
+describe("my new feature", () => {
+  it("should process tasks with custom metadata", { timeout: 180_000 }, async () => {
+    // 1. Insert a task with specific metadata
+    const task = await insertTask({
+      instruction: "Reply with: Feature test passed",
+      metadata: { source: "test", featureFlag: "new-feature" },
+    });
+
+    // 2. Wait for the runner to complete it
+    await waitFor(async () => {
+      const t = await getTask(task.id);
+      return t?.status === "done" || t?.status === "failed";
+    }, 120_000);
+
+    // 3. Verify the result
+    const result = await getTask(task.id);
+    assert.equal(result?.status, "done");
+    assert.ok(result?.result?.includes("Feature test passed"));
+  });
+});
+```
+
+### 2. Session Manager Unit Test
+
+To test session behavior without running the full agent:
+
+<CodeGroup>
+
+```typescript Unit Test Example
+import { SessionManager } from "@mariozechner/pi-coding-agent";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
+it("SessionManager.create() starts a blank session", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "warden-test-"));
+  try {
+    // Create a session and write some history
+    const sm1 = SessionManager.create(process.cwd(), dir);
+    sm1.appendMessage({
+      role: "user",
+      content: [{ type: "text", text: "remember this" }],
+      timestamp: Date.now(),
+    });
+
+    // Create a fresh session — should have no messages
+    const sm2 = SessionManager.create(process.cwd(), dir);
+    const ctx = sm2.buildSessionContext();
+    assert.equal(ctx.messages.length, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+```
+
+```typescript Integration Test Example
+import { deriveSessionKey, markNewSession } from "../src/session-store.js";
+
+it("derives correct session keys from metadata", () => {
+  assert.equal(
+    deriveSessionKey({ source: "telegram", chatId: 12345 }),
+    "telegram-12345"
+  );
+  assert.equal(deriveSessionKey({ source: "repl" }), "repl");
+  assert.equal(deriveSessionKey({ cron: true }), null);
+  assert.equal(deriveSessionKey(null), null);
+});
+```
+
+</CodeGroup>
+
+### 3. Log Inspection Test
+
+To verify that the runner logs specific behavior:
+
+```typescript tests/session-persistence.test.ts
+import { execSync } from "node:child_process";
+
+const LOG_PATH = "log.txt";
+
+function readLog(): string {
+  // Use `strings` to extract printable text from binary log
+  return execSync(`strings "${LOG_PATH}"`, { encoding: "utf-8" });
+}
+
+it("logs persistent session for telegram tasks", async () => {
+  const task = await insertTask({
+    instruction: "test",
+    metadata: { source: "telegram", chatId: 9999 },
+  });
+
+  await waitForTaskDone(task.id);
+
+  // Wait for log to flush, then check
+  await waitFor(async () => {
+    const log = readLog();
+    return log.includes(`Session: telegram-9999 (persistent)`);
+  }, 15_000, 500);
+
+  const log = readLog();
+  assert.ok(log.includes(`Session: telegram-9999 (persistent)`));
+});
+```
+
+## Test Protection
+
+<Tip>
+**Baseline tests are protected.** Pre-commit hooks prevent deletion or weakening of assertions in existing test files.
+</Tip>
+
+From `.claude/rules/tests.md`:
+
+```markdown
+# Tests (tests/)
+
+E2E and integration tests using Node's built-in test runner (`node:test`).
+
+## Rules
+
+- **Baseline tests are PROTECTED** — do not delete or reduce assertions in existing test files
+- New test files can be added freely to the tests/ directory
+- Tests run against live Supabase — the dev server must be running
+- Use `{ timeout: 180_000 }` for tests that wait for task completion
+```
+
+This ensures that as features evolve, test coverage can only improve, never regress.
+
+## Common Test Patterns
+
+### Pattern: Wait for Telegram Delivery
+
+Tests that verify Telegram notification routing inspect `log.txt` for delivery confirmation:
+
+```typescript tests/resolve-metadata.test.ts
+it("completed task routes result to Telegram", { timeout: 180_000 }, async () => {
+  // Wait for Warden to finish the task
+  await waitFor(async () => {
+    const task = await getTask(firedTaskId);
+    return task?.status === "done" || task?.status === "failed";
+  }, 120_000);
+
+  // Wait for the telegram delivery line to be flushed to log.txt
+  await waitFor(async () => {
+    const log = readFileSync(LOG_PATH, "utf-8");
+    return log.includes(
+      `[telegram] Sent reply to chat ${TELEGRAM_METADATA.chatId} for task ${firedTaskId}`
+    );
+  }, 15_000, 500);
+
+  const logContent = readFileSync(LOG_PATH, "utf-8");
+  const telegramLine = logContent
+    .split("\n")
+    .find(
+      (l) =>
+        l.includes(
+          `[telegram] Sent reply to chat ${TELEGRAM_METADATA.chatId}`
+        ) && l.includes(firedTaskId)
+    );
+
+  assert.ok(
+    telegramLine,
+    `Expected '[telegram] Sent reply...' in log.txt`
+  );
+});
+```
+
+### Pattern: Session Context Retention
+
+Verify that persistent sessions remember previous conversations:
+
+```typescript tests/session-persistence.test.ts
+it("second task from same chatId retains conversation context", async () => {
+  // Task 1: Store a secret
+  const task1 = await insertTask({
+    instruction: 'Remember the secret code: FALCON42. Reply with "Code word noted."',
+    metadata: { source: "telegram", chatId: TEST_CHAT_ID },
+  });
+  await waitForTaskDone(task1.id);
+
+  // Task 2: Recall the secret
+  const task2 = await insertTask({
+    instruction: "What secret code did I tell you? Reply with just the code.",
+    metadata: { source: "telegram", chatId: TEST_CHAT_ID },
+  });
+  await waitForTaskDone(task2.id);
+
+  const result = await getTask(task2.id);
+  assert.ok(
+    result?.result?.includes("FALCON42"),
+    "Session should remember the code word from task 1"
+  );
+});
+```
+
+### Pattern: Stateless Cron Tasks
+
+Verify that cron tasks do NOT persist sessions:
+
+```typescript tests/session-persistence.test.ts
+it("cron task is stateless (no persistent session)", async () => {
+  const task = await insertTask({
+    instruction: 'Reply with exactly: "cron task done"',
+    metadata: { source: "telegram", chatId: TEST_CHAT_ID, cron: true },
+  });
+
+  await waitForTaskDone(task.id);
+
+  const log = readLog();
+  const lines = log.split("\n");
+
+  const execLineIdx = lines.findIndex((l) =>
+    l.includes(`Executing task ${task.id}`)
+  );
+  const completedIdx = lines.findIndex(
+    (l, i) => i > execLineIdx && l.includes(`Task ${task.id} completed`)
+  );
+
+  const between = lines.slice(execLineIdx, completedIdx + 1).join("\n");
+  assert.ok(
+    !between.includes("(persistent)"),
+    "Cron task should not have a persistent session"
+  );
+});
+```
+
+## Debugging Failed Tests
+
+### Check the log file
+
+Inspect `log.txt` to see what the runner actually did:
+
+```bash
+# View recent logs
+tail -n 100 log.txt
+
+# Search for a specific task ID
+grep "task-uuid-here" log.txt
+
+# Check for errors
+grep -i error log.txt
+```
+
+### Query Supabase directly
+
+Inspect task state and agent steps:
+
+```typescript
+import { getTask, getAgentSteps } from "../src/data_model/index.js";
+
+const task = await getTask("task-uuid");
+console.log(task);
+
+const steps = await getAgentSteps("task-uuid");
+console.log(steps);
+```
+
+### Run a single test
+
+```bash
+npx tsx --test tests/session-persistence.test.ts
+```
+
+### Increase verbosity
+
+Set `NODE_OPTIONS` for more test output:
+
+```bash
+NODE_OPTIONS="--trace-warnings" npm test
+```
+
+## Best Practices
+
+1. **Use unique test data** — avoid conflicts with real Telegram messages or production cron jobs
+2. **Clean up test artifacts** — use `after()` hooks to delete test tasks/cron jobs
+3. **Wait generously** — LLM responses are slow; use 2-3 minute timeouts
+4. **Test real behavior** — prefer E2E tests that exercise the full system over unit tests that mock components
+5. **Inspect logs** — `log.txt` is your friend for debugging test failures

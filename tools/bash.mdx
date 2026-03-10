@@ -1,0 +1,230 @@
+---
+title: "Bash Tool"
+description: "Execute shell commands for system operations, CLI tools, and automation tasks"
+icon: "terminal"
+---
+
+The bash tool executes shell commands in a persistent shell session. Warden uses it to run CLI tools like `wp-cli`, `curl`, `jq`, and other system operations.
+
+## Basic Usage
+
+```typescript
+// From src/prompt.ts
+- bash: Execute shell commands (au, curl, jq, and other CLI tools)
+```
+
+The bash tool runs commands in a persistent environment, so environment variables and directory changes persist across commands within a single task execution.
+
+## Common Use Cases
+
+<CardGroup cols={2}>
+  <Card title="WordPress CLI" icon="wordpress">
+    Execute wp-cli commands over SSH for blog management
+  </Card>
+  <Card title="API Requests" icon="code">
+    Use curl to fetch data from external APIs
+  </Card>
+  <Card title="Data Processing" icon="filter">
+    Parse JSON responses with jq or process text with standard Unix tools
+  </Card>
+  <Card title="System Operations" icon="gear">
+    Run npm builds, git operations, or file system commands
+  </Card>
+</CardGroup>
+
+## Examples from Production
+
+### Cron Job Management
+
+From `src/cron-cli.ts`, the cron CLI uses bash to manage scheduled tasks:
+
+```bash
+# Add a recurring job (cron expression)
+npx tsx src/cron-cli.ts add --name "weekly-content-plan" \
+  --cron "0 9 * * MON" \
+  --tz "America/Los_Angeles" \
+  --instruction "Review the content calendar and suggest new topic ideas."
+
+# Add a one-shot reminder
+npx tsx src/cron-cli.ts add --name "publish reminder" \
+  --at "2026-03-15T14:00:00Z" \
+  --instruction "Publish the draft post about local AI agents."
+
+# Add a repeating interval job
+npx tsx src/cron-cli.ts add --name "reddit-scan" \
+  --every "6h" \
+  --instruction "Scan r/LocalLLaMA for trending topics."
+
+# List all jobs
+npx tsx src/cron-cli.ts list
+
+# Manually trigger a job
+npx tsx src/cron-cli.ts run <job-id>
+```
+
+### WordPress Operations
+
+The bash tool wraps wp-cli commands for blog publishing:
+
+```bash
+# List published posts
+wp post list --post_status=publish --fields=ID,post_title,post_date --ssh="$WP_SSH"
+
+# Create a draft post
+wp post create --post_title="My Post" --post_status=draft --porcelain --ssh="$WP_SSH"
+
+# Publish from HTML file
+wp post create ./content.html --post_title="Title" --post_status=publish --porcelain --ssh="$WP_SSH"
+
+# Upload featured image
+wp media import ./image.jpg --post_id=123 --featured_image --ssh="$WP_SSH"
+```
+
+<Note>
+For WordPress operations, Warden uses the dedicated `wp` tool (see [WordPress Tool](/tools/wordpress)) which wraps wp-cli with proper SSH configuration.
+</Note>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Write content to temp files first">
+    For long HTML content or complex data, write to a temp file first to avoid shell escaping issues:
+    
+    ```bash
+    # Good: Write HTML to file, then reference it
+    echo "<h1>Post content</h1>" > /tmp/post.html
+    wp post create /tmp/post.html --post_title="My Post" --ssh="$WP_SSH"
+    
+    # Avoid: Passing long HTML as command argument
+    wp post create --post_content="<h1>...</h1>" --ssh="$WP_SSH"
+    ```
+  </Accordion>
+  
+  <Accordion title="Check command output for errors">
+    Always verify command success before proceeding:
+    
+    ```bash
+    # Create post and capture ID
+    POST_ID=$(wp post create --post_title="Test" --porcelain --ssh="$WP_SSH")
+    
+    # Verify it worked before using the ID
+    if [ -n "$POST_ID" ]; then
+      wp media import ./image.jpg --post_id=$POST_ID --featured_image --ssh="$WP_SSH"
+    fi
+    ```
+  </Accordion>
+  
+  <Accordion title="Use --porcelain for machine-readable output">
+    When you need to parse command results, use `--porcelain` flags:
+    
+    ```bash
+    # Returns just the post ID (easy to capture)
+    wp post create --post_title="Test" --porcelain --ssh="$WP_SSH"
+    
+    # Returns human-readable message (harder to parse)
+    wp post create --post_title="Test" --ssh="$WP_SSH"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Cron Scheduling Features
+
+From `CLAUDE.md:42-70`, Warden supports multiple scheduling formats:
+
+<Tabs>
+  <Tab title="Cron Expression">
+    Standard cron syntax with timezone support:
+    
+    ```bash
+    npx tsx src/cron-cli.ts add \
+      --name "daily-backup" \
+      --cron "0 2 * * *" \
+      --tz "America/Los_Angeles" \
+      --instruction "Run database backup"
+    ```
+    
+    The `--tz` flag ensures cron expressions respect your local timezone, not UTC.
+  </Tab>
+  
+  <Tab title="One-Shot Timer">
+    Run once at a specific time:
+    
+    ```bash
+    npx tsx src/cron-cli.ts add \
+      --name "launch-reminder" \
+      --at "2026-03-20T09:00:00Z" \
+      --instruction "Send launch announcement" \
+      --delete-after-run
+    ```
+    
+    Use `--delete-after-run` to automatically clean up one-shot jobs after execution.
+  </Tab>
+  
+  <Tab title="Interval">
+    Repeat at fixed intervals:
+    
+    ```bash
+    npx tsx src/cron-cli.ts add \
+      --name "health-check" \
+      --every "30m" \
+      --instruction "Check service health"
+    ```
+    
+    Supported intervals: `30s`, `5m`, `2h`, `1d`
+  </Tab>
+</Tabs>
+
+<Warning>
+Cron job instructions execute as **standalone tasks with no conversation history**. The `--instruction` must be completely self-contained — include all necessary context and actions.
+</Warning>
+
+## Task Metadata Inheritance
+
+From `src/runner.ts:96-97`, cron jobs automatically inherit the parent task's delivery channel:
+
+```typescript
+// Expose current task's metadata so cron-cli can auto-inherit it
+if (task.metadata) {
+  process.env.WARDEN_TASK_METADATA = JSON.stringify(task.metadata);
+}
+```
+
+This means:
+- If you create a cron job from Telegram, results route back to that Telegram chat
+- If you create from REPL, results appear in the REPL
+- Override with `--metadata` flag if you need custom routing
+
+## Environment Variables
+
+The bash tool has access to all environment variables configured in `.env`:
+
+```bash
+# From CLAUDE.md:126-128
+SUPABASE_URL          # Database connection
+SUPABASE_ANON_KEY     # Database auth
+ANTHROPIC_API_KEY     # LLM provider
+OPENROUTER_API_KEY    # Alternative LLM provider
+TELEGRAM_BOT_TOKEN    # Telegram integration
+WP_SSH                # WordPress SSH connection (user@host)
+```
+
+<Note>
+See `.env.example` in the source repository for the complete list of supported environment variables.
+</Note>
+
+## Limitations
+
+- **No interactive commands**: Commands requiring user input (like `git rebase -i`) are not supported
+- **Timeout handling**: Long-running commands may timeout depending on agent configuration
+- **Shell escaping**: Complex quoting can be tricky — prefer writing data to temp files
+
+## Related Tools
+
+<CardGroup cols={2}>
+  <Card title="File Operations" icon="file" href="/tools/file-operations">
+    Use dedicated read/write/edit tools for file manipulation
+  </Card>
+  <Card title="WordPress" icon="wordpress" href="/tools/wordpress">
+    Specialized tool for wp-cli commands with proper SSH setup
+  </Card>
+</CardGroup>

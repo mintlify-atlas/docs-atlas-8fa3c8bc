@@ -1,0 +1,584 @@
+---
+title: Custom Skills
+description: Creating and using custom skills in Warden
+---
+
+Skills are **prompt templates** that guide Warden through specific workflows. They're markdown files stored in `skills/` and loaded dynamically at runtime.
+
+## What Are Skills?
+
+From `src/prompt.ts`, Warden's system prompt describes skills:
+
+> Use the `skill` tool to load a skill's full prompt when needed. Do not guess — load the skill first.
+
+Skills provide:
+- Domain-specific instructions (e.g., content style guide, SEO checklist)
+- Workflow templates (e.g., publishing a blog post, monitoring competitor sites)
+- Reference data (e.g., WordPress page IDs, API endpoints)
+
+## Creating a Skill
+
+<Steps>
+  <Step title="Create a markdown file">
+    Skills live in `skills/` and use the `.md` extension:
+
+    ```bash
+    touch skills/my-new-skill.md
+    ```
+
+    The skill name is derived from the filename (without `.md`).
+  </Step>
+
+  <Step title="Add YAML frontmatter">
+    Skills support optional frontmatter for metadata:
+
+    ```markdown skills/my-new-skill.md
+    ---
+    trigger: When the user asks about X
+    description: Brief summary of what this skill does
+    ---
+
+    # Skill Content
+
+    Your instructions go here...
+    ```
+
+    - `trigger` — Hints when to load this skill (optional)
+    - `description` — Shown in the skill list (falls back to first heading or filename)
+  </Step>
+
+  <Step title="Write the skill content">
+    The skill body is plain markdown. Use it to provide:
+    - Step-by-step workflows
+    - Reference tables (API endpoints, page IDs, etc.)
+    - Writing style rules
+    - Code examples
+    - External API documentation
+  </Step>
+
+  <Step title="Test the skill">
+    Restart Warden to reload skills:
+
+    ```bash
+    npm run build && pm2 restart warden
+    ```
+
+    Or call `reloadSkills()` from the REPL (if running `npm run dev`).
+
+    Ask Warden to use it:
+    ```
+    Use the my-new-skill skill to ...
+    ```
+  </Step>
+</Steps>
+
+## Skill Examples
+
+Warden includes several built-in skills for content marketing. Let's examine them:
+
+### Example 1: Content Style Guide
+
+From `skills/content-style.md`:
+
+```markdown skills/content-style.md
+---
+trigger: When writing or editing blog content for openclaws.blog
+description: Writing style guide for openclaws.blog
+---
+# Content Style Guide
+
+When writing blog posts for openclaws.blog, follow this structure and style consistently.
+
+## Structure Template
+
+```
+H1: Title (compelling, benefit-driven or question-based)
+
+Opening Hook (2-3 paragraphs)
+  - Lead with a statistic, market data, or compelling question
+  - Establish the problem or opportunity
+  - Bridge to your thesis
+
+H2: Key Takeaways
+  - 3-5 bullet points summarizing the post's main points
+  ...
+```
+
+## Target Audience
+
+Our audience matches V2Cloud.com's readers: **non-technical business professionals** at small-to-medium businesses.
+...
+```
+
+**What it provides:**
+- Consistent post structure template
+- Audience targeting rules (avoid jargon, use business language)
+- Formatting guidelines
+- SEO checklist
+
+**When to use it:**
+```
+Use the content-style skill before writing any blog post
+```
+
+### Example 2: Co-Marketing Partner Monitoring
+
+From `skills/co-marketing.md`:
+
+```markdown skills/co-marketing.md
+---
+trigger: When monitoring V2Cloud content, generating co-marketing topic ideas, or preparing for weekly partner sync
+description: V2Cloud co-marketing partner monitoring via WordPress REST API and sitemap diffing
+---
+# Co-Marketing Partner Monitoring
+
+Monitor V2Cloud's site to detect new pages, content refreshes, and strategic shifts — then generate **complementary** topic ideas for openclaws.blog.
+
+## WordPress REST API Monitoring
+
+```bash
+# Posts modified today
+curl -s "https://v2cloud.com/wp-json/wp/v2/posts?per_page=100&modified_after=2026-03-08T00:00:00..."
+```
+
+## Daily Topic Generation Workflow
+
+1. Detect changes via REST API
+2. Fetch and analyze changed content
+3. Generate complementary topic ideas
+4. Score and prioritize
+...
+```
+
+**What it provides:**
+- API endpoints for WordPress monitoring
+- Workflow for detecting content changes
+- Topic scoring rubric
+- Cron job templates
+
+**When to use it:**
+```
+Use the co-marketing skill. Query the V2Cloud WordPress REST API for posts and pages modified in the last 24 hours.
+```
+
+### Example 3: WordPress Publishing
+
+From `skills/publish.md` (inferred structure):
+
+```markdown skills/publish.md
+---
+trigger: When publishing or updating WordPress posts
+description: wp-cli reference, page IDs, and post-publish checklist
+---
+# WordPress Publishing Workflow
+
+## Site Structure
+
+| Page ID | Page | Purpose |
+|---------|------|----------|
+| 37 | Home | Hero headline, value propositions, latest posts |
+| 1 | About | Blog mission, what we cover, our tools |
+| 38 | Blog | Blog listing page |
+
+## wp-cli Commands
+
+```bash
+# Create a post
+wp post create --post_title="..." --post_content="..." --post_status=publish --ssh="$WP_SSH"
+
+# Update a post
+wp post update <ID> --post_content="..." --ssh="$WP_SSH"
+
+# List posts
+wp post list --format=table --ssh="$WP_SSH"
+```
+...
+```
+
+**What it provides:**
+- WordPress page IDs and structure
+- wp-cli command reference
+- Post-publish checklist (SEO, internal links, images)
+
+## How Skills Are Loaded
+
+From `src/skill-tool.ts`, skills are dynamically loaded from the filesystem:
+
+```typescript src/skill-tool.ts
+const SKILLS_DIR = path.join(process.cwd(), "skills");
+
+function loadSkills(): Map<string, SkillEntry> {
+  const skills = new Map<string, SkillEntry>();
+  if (!fs.existsSync(SKILLS_DIR)) return skills;
+
+  for (const file of fs.readdirSync(SKILLS_DIR)) {
+    if (!file.endsWith(".md")) continue;
+    const name = file.replace(/\.md$/, "");
+    const raw = fs.readFileSync(path.join(SKILLS_DIR, file), "utf-8");
+    const { meta, body } = parseFrontmatter(raw);
+
+    skills.set(name, {
+      name,
+      description: meta.description || extractFirstHeading(body) || name,
+      trigger: meta.trigger,
+      content: body,
+    });
+  }
+  return skills;
+}
+```
+
+### Skill Tool Definition
+
+Warden exposes a `skill` tool to the agent:
+
+```typescript src/skill-tool.ts
+export const skillTool: ToolDefinition<typeof SkillParams> = {
+  name: "skill",
+  label: "Skill",
+  description: buildDescription(),
+  parameters: SkillParams,
+
+  async execute(_toolCallId, params) {
+    const entry = skills.get(params.skill);
+
+    if (!entry) {
+      const available = [...skills.keys()];
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Unknown skill "${params.skill}". Available skills: ${available.join(", ")}`,
+        }],
+      };
+    }
+
+    // Return full skill content
+    let content = entry.content;
+    if (params.args) {
+      content += `\n\n## User Arguments\n\n${params.args}`;
+    }
+
+    return {
+      content: [{ type: "text" as const, text: content }],
+      details: undefined,
+    };
+  },
+};
+```
+
+### How Skills Appear in the System Prompt
+
+From `src/prompt.ts`:
+
+```typescript src/prompt.ts
+import { listSkillSummaries } from "./skill-tool.js";
+
+export function buildSystemPrompt(): string {
+  const skillSection = listSkillSummaries();
+
+  return `You are Warden, a content marketing assistant...
+
+${skillSection}
+
+Your capabilities:
+- Research trending topics via HN, Reddit, YouTube
+- Write SEO-optimized blog posts following the content style guide
+- Publish and manage posts on WordPress via the wp tool
+...
+
+Guidelines:
+- Load the relevant skill before starting a task (e.g. \`content-style\` before writing)
+...
+`;
+}
+```
+
+And `listSkillSummaries()` generates:
+
+```typescript src/skill-tool.ts
+export function listSkillSummaries(): string {
+  const skills = getSkills();
+  if (skills.size === 0) return "";
+
+  const lines = [...skills.values()].map((s) => {
+    const trigger = s.trigger ? ` | Trigger: ${s.trigger}` : "";
+    return `  - ${s.name}: ${s.description}${trigger}`;
+  });
+
+  return `## Available Skills
+
+Use the \`skill\` tool to load a skill's full prompt when needed. Do not guess — load the skill first.
+
+${lines.join("\n")}`;
+}
+```
+
+<Tip>
+Skills are **cached** after the first load. Call `reloadSkills()` to refresh without restarting:
+
+```typescript
+import { reloadSkills } from "./src/skill-tool.js";
+reloadSkills();
+```
+</Tip>
+
+## Using Skills in Cron Jobs
+
+Cron job instructions can reference skills:
+
+```bash
+npx tsx src/cron-cli.ts add \
+  --name "daily-v2cloud-scan" \
+  --cron "0 8 * * *" \
+  --tz "America/Los_Angeles" \
+  --instruction "Use the co-marketing skill. Query the V2Cloud WordPress REST API for posts and pages modified in the last 24 hours. For each change detected, classify it (new vs refresh), fetch the content, and generate 1-2 topic ideas for openclaws.blog. Report findings using the Daily Partner Scan format."
+```
+
+The agent will:
+1. Load the `co-marketing` skill via the `skill` tool
+2. Follow the workflow defined in the skill
+3. Report results back to the task source (Telegram, REPL, etc.)
+
+## Skill Best Practices
+
+### 1. Make Skills Self-Contained
+
+Skills should include ALL necessary context. Cron jobs have no conversation history, so they rely entirely on the skill content.
+
+**Bad:**
+```markdown
+# Publishing Workflow
+
+Run the wp command with the post ID from earlier.
+```
+
+**Good:**
+```markdown
+# Publishing Workflow
+
+## Step 1: Write the post content to a temp file
+
+```bash
+cat > /tmp/post.html <<'EOF'
+<p>Your post content here...</p>
+EOF
+```
+
+## Step 2: Publish via wp-cli
+
+```bash
+wp post create --post_title="..." --post_content="$(cat /tmp/post.html)" --post_status=publish --ssh="$WP_SSH"
+```
+```
+
+### 2. Use Tables for Reference Data
+
+Skills often contain lookup tables (API endpoints, page IDs, author names):
+
+```markdown
+## Known V2Cloud Author IDs
+
+| Author ID | Name | Role |
+|-----------|------|------|
+| 3 | Jason | Founder/CEO |
+| 4 | Vasileios | French/partner pages |
+| 7 | Unknown | Pricing/conversion pages |
+| 16 | Irini Karatoliou | Content/SEO |
+```
+
+This lets the agent look up values without hardcoding them in instructions.
+
+### 3. Include Example Commands
+
+Provide copy-paste examples:
+
+```markdown
+## Fetching Modified Posts
+
+```bash
+curl -s "https://v2cloud.com/wp-json/wp/v2/posts?per_page=100&modified_after=2026-03-08T00:00:00&modified_before=2026-03-09T00:00:00&_fields=id,slug,author,modified,date&orderby=modified&order=asc"
+```
+```
+
+### 4. Define Workflows Step-by-Step
+
+Break complex tasks into numbered steps:
+
+```markdown
+## Daily Topic Generation Workflow
+
+### Step 1: Detect changes
+
+Use the WordPress REST API to query posts modified in the last 24 hours.
+
+### Step 2: Fetch and analyze changed content
+
+For each changed post, identify:
+- Primary keyword
+- Content angle
+- Audience segment
+
+### Step 3: Generate complementary topic ideas
+
+For each change, generate 1-2 topic ideas that strengthen BOTH sites.
+
+### Step 4: Score and prioritize
+
+Score each idea on:
+1. Cross-link value (1-5)
+2. Audience overlap (1-5)
+3. Content gap (1-5)
+4. Our expertise fit (1-5)
+```
+
+### 5. Add Trigger Hints
+
+The `trigger` frontmatter helps the agent decide when to load a skill:
+
+```markdown
+---
+trigger: When writing or editing blog content for openclaws.blog
+description: Writing style guide for openclaws.blog
+---
+```
+
+The agent sees:
+```
+- content-style: Writing style guide for openclaws.blog | Trigger: When writing or editing blog content for openclaws.blog
+```
+
+## Advanced: Dynamic Skills
+
+You can programmatically create skills by writing markdown files from Warden itself:
+
+```typescript
+import { writeFileSync } from "node:fs";
+import { reloadSkills } from "./src/skill-tool.js";
+
+const skillContent = `---
+trigger: When analyzing technical documentation
+description: Technical writing style guide
+---
+# Technical Writing Guide
+
+Use active voice, avoid jargon, provide code examples.
+`;
+
+writeFileSync("skills/technical-writing.md", skillContent);
+reloadSkills();
+```
+
+Now the agent can use the new skill:
+```
+Use the technical-writing skill to review this documentation.
+```
+
+## Skill Debugging
+
+### List Available Skills
+
+```bash
+ls -1 skills/*.md | sed 's/skills\///; s/\.md//'
+```
+
+Or from the REPL:
+```typescript
+import { listSkillNames } from "./src/skill-tool.js";
+console.log(listSkillNames());
+```
+
+### View Skill Content
+
+```bash
+cat skills/content-style.md
+```
+
+Or from the agent:
+```typescript
+import { getSkillContent } from "./src/skill-tool.js";
+console.log(getSkillContent("content-style"));
+```
+
+### Verify Skill Is Loaded
+
+Check the system prompt:
+
+```typescript
+import { buildSystemPrompt } from "./src/prompt.js";
+console.log(buildSystemPrompt());
+```
+
+Look for the skill in the "Available Skills" section.
+
+### Test Skill Execution
+
+Ask the agent to use the skill explicitly:
+
+```
+Use the my-new-skill skill and summarize what it contains.
+```
+
+The agent will call the `skill` tool and return the skill content.
+
+## Real-World Skill: Automated Content Pipeline
+
+From `CLAUDE.md`, Warden runs a fully automated content marketing pipeline using skills:
+
+```
+Daily scan (8am PT)
+  → Query V2Cloud REST API for posts/pages modified in last 24h
+  → Classify: new content vs refresh
+  → Generate 1-2 topic ideas with scoring
+  → Report findings via task result
+
+Wed + Sun (9am PT)
+  → Collect topic ideas from recent daily scans
+  → Pick best topic based on scoring criteria
+  → Load content-style skill (audience rules, branded metaphors, structure)
+  → Load seo-audit skill (on-page SEO checklist)
+  → Write full blog post (2,000-3,000 words)
+  → Publish to WordPress via wp-cli
+```
+
+**Skills used:**
+- `co-marketing` — Competitor monitoring workflow
+- `content-style` — Writing style and structure template
+- `seo-audit` — On-page SEO checklist
+- `publish` — wp-cli commands and post-publish checklist
+
+**Cron jobs:**
+
+<CodeGroup>
+
+```bash Daily Scan
+npx tsx src/cron-cli.ts add \
+  --name "daily-v2cloud-scan" \
+  --cron "0 8 * * *" \
+  --tz "America/Los_Angeles" \
+  --instruction "Use the co-marketing skill. Query the V2Cloud WordPress REST API for posts and pages modified in the last 24 hours (use today's date). For each change detected, classify it (new vs refresh), fetch the content, and generate 1-2 topic ideas for openclaws.blog. Report findings using the Daily Partner Scan format."
+```
+
+```bash Biweekly Publish
+npx tsx src/cron-cli.ts add \
+  --name "biweekly-blog-publish" \
+  --cron "0 9 * * WED,SUN" \
+  --tz "America/Los_Angeles" \
+  --instruction "Review topic ideas from recent daily scans. Pick the best one based on scoring criteria. Use the content-style and seo-audit skills to write a full blog post (2,000-3,000 words). Publish to WordPress using the publish skill."
+```
+
+</CodeGroup>
+
+## Summary
+
+Skills are powerful prompt templates that:
+- Provide domain-specific instructions
+- Define reusable workflows
+- Store reference data (APIs, page IDs, style rules)
+- Enable automated pipelines via cron jobs
+
+To create a skill:
+1. Write a markdown file in `skills/`
+2. Add YAML frontmatter (trigger, description)
+3. Provide step-by-step workflows, reference tables, and examples
+4. Reload skills with `reloadSkills()` or restart Warden
+5. Ask the agent to use it: `Use the <skill-name> skill to...`

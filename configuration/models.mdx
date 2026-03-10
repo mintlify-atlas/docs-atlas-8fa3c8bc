@@ -1,0 +1,236 @@
+---
+title: Model Configuration
+description: Configure LLM providers and models for Warden's agent runtime
+---
+
+Warden supports multiple LLM providers through the unified `@mariozechner/pi-ai` interface. Configure via CLI flags or environment variables.
+
+## Provider Selection
+
+<CodeGroup>
+```bash Anthropic (Direct)
+npm run dev -- --provider anthropic --model claude-sonnet-4
+```
+
+```bash OpenRouter (Default)
+npm run dev -- --provider openrouter --model anthropic/claude-sonnet-4
+```
+
+```bash Environment Variables
+# Set defaults in .env, override via CLI flags
+DEFAULT_PROVIDER=anthropic
+DEFAULT_MODEL=claude-sonnet-4
+
+npm run dev  # Uses env defaults
+```
+</CodeGroup>
+
+## Supported Providers
+
+<ParamField path="anthropic" type="provider">
+  Direct access to Claude models via Anthropic API
+  
+  **Requires:** `ANTHROPIC_API_KEY`
+  
+  **Model IDs:**
+  - `claude-sonnet-4`
+  - `claude-opus-4`
+  - `claude-haiku-4`
+  
+  **Use when:** You have an Anthropic API account and want direct access without a proxy.
+</ParamField>
+
+<ParamField path="openrouter" type="provider">
+  Access to multiple models via OpenRouter API
+  
+  **Requires:** `OPENROUTER_API_KEY`
+  
+  **Model IDs (namespaced):**
+  - `anthropic/claude-sonnet-4`
+  - `anthropic/claude-opus-4`
+  - `google/gemini-pro-1.5`
+  - `openai/gpt-4-turbo`
+  
+  **Use when:** You want model flexibility or don't have direct API access.
+  
+  <Note>
+    OpenRouter requires namespaced model IDs (e.g., `anthropic/claude-sonnet-4`). See [openrouter.ai/models](https://openrouter.ai/models) for the full catalog.
+  </Note>
+</ParamField>
+
+## Configuration Resolution
+
+Warden resolves provider and model in this order:
+
+1. **CLI flags** (highest priority)
+2. **Environment variables** (`DEFAULT_PROVIDER`, `DEFAULT_MODEL`)
+3. **Hardcoded defaults** (lowest priority)
+
+See [config.ts:19-23](file:///home/daytona/workspace/source/src/config.ts:19) for implementation:
+
+```typescript
+export function getEffectiveConfig(cliProvider?: string, cliModel?: string) {
+  const provider = cliProvider ?? process.env.DEFAULT_PROVIDER ?? DEFAULT_PROVIDER;
+  const model = cliModel ?? process.env.DEFAULT_MODEL ?? DEFAULT_MODEL;
+  return { provider, model };
+}
+```
+
+## Hardcoded Defaults
+
+If no configuration is provided, Warden uses:
+
+```typescript
+const DEFAULT_PROVIDER = "openrouter";
+const DEFAULT_MODEL = "anthropic/claude-sonnet-4";
+```
+
+From [config.ts:3-4](file:///home/daytona/workspace/source/src/config.ts:3).
+
+## API Key Validation
+
+Warden validates required API keys at startup:
+
+```typescript
+if (provider === "anthropic" && !process.env.ANTHROPIC_API_KEY) {
+  throw new Error("ANTHROPIC_API_KEY is required for Anthropic provider");
+}
+if (provider === "openrouter" && !process.env.OPENROUTER_API_KEY) {
+  throw new Error("OPENROUTER_API_KEY is required for OpenRouter provider");
+}
+```
+
+From [config.ts:8-13](file:///home/daytona/workspace/source/src/config.ts:8).
+
+<Warning>
+  Warden will exit immediately if the selected provider's API key is missing. Always set at least one provider's API key in your `.env` file.
+</Warning>
+
+## Model Resolution
+
+The `resolveModel()` function wraps `@mariozechner/pi-ai`'s `getModel()` with runtime type casting:
+
+```typescript
+export function resolveModel(provider: string, modelId: string) {
+  // Check for required API key
+  if (provider === "anthropic" && !process.env.ANTHROPIC_API_KEY) {
+    throw new Error("ANTHROPIC_API_KEY is required for Anthropic provider");
+  }
+  if (provider === "openrouter" && !process.env.OPENROUTER_API_KEY) {
+    throw new Error("OPENROUTER_API_KEY is required for OpenRouter provider");
+  }
+
+  // Cast needed: provider/modelId come from config, not compile-time known
+  return (getModel as (p: string, m: string) => ReturnType<typeof getModel>)(provider, modelId);
+}
+```
+
+From [config.ts:6-17](file:///home/daytona/workspace/source/src/config.ts:6).
+
+<Note>
+  The type cast is required because `provider` and `modelId` are dynamic runtime values, but `getModel()` expects compile-time `KnownProvider` types.
+</Note>
+
+## Examples
+
+### Use Claude Opus via Anthropic
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-api03-...
+npm run dev -- --provider anthropic --model claude-opus-4
+```
+
+### Use GPT-4 via OpenRouter
+
+```bash
+export OPENROUTER_API_KEY=sk-or-v1-...
+npm run dev -- --provider openrouter --model openai/gpt-4-turbo
+```
+
+### Set Default Provider in .env
+
+```bash .env
+DEFAULT_PROVIDER=anthropic
+DEFAULT_MODEL=claude-sonnet-4
+ANTHROPIC_API_KEY=sk-ant-api03-...
+```
+
+```bash Terminal
+# Uses Anthropic + claude-sonnet-4 from .env
+npm run dev
+
+# Override model via CLI flag
+npm run dev -- --model claude-opus-4
+```
+
+## Model Switching at Runtime
+
+Warden creates a single agent session per task using the globally configured model. To switch models:
+
+1. **Stop Warden** (`Ctrl+C` or `pm2 stop warden`)
+2. **Update environment variables** or CLI flags
+3. **Restart Warden** (`npm run dev` or `pm2 restart warden --update-env`)
+
+<Warning>
+  There is no hot-reload for model configuration. You must restart the runner for changes to take effect.
+</Warning>
+
+## pm2 with Custom Models
+
+When running 24/7 with pm2, pass CLI flags via the command:
+
+```bash
+npm run build
+pm2 start dist/index.js --name warden -- --provider anthropic --model claude-opus-4
+pm2 save  # Persist configuration
+```
+
+Or set environment variables and restart:
+
+```bash
+# Update .env with DEFAULT_PROVIDER and DEFAULT_MODEL
+pm2 restart warden --update-env
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Error: ANTHROPIC_API_KEY is required">
+    You're using `--provider anthropic` but haven't set the API key.
+    
+    **Fix:** Add to `.env`:
+    ```bash
+    ANTHROPIC_API_KEY=sk-ant-api03-...
+    ```
+  </Accordion>
+  
+  <Accordion title="Error: OPENROUTER_API_KEY is required">
+    You're using `--provider openrouter` (or no provider flag, which defaults to OpenRouter) but haven't set the API key.
+    
+    **Fix:** Add to `.env`:
+    ```bash
+    OPENROUTER_API_KEY=sk-or-v1-...
+    ```
+  </Accordion>
+  
+  <Accordion title="Model ID not found on OpenRouter">
+    OpenRouter requires namespaced model IDs (e.g., `anthropic/claude-sonnet-4`).
+    
+    **Fix:** Check available models at [openrouter.ai/models](https://openrouter.ai/models) and use the full namespaced ID.
+  </Accordion>
+  
+  <Accordion title="Using wrong model after restart">
+    If you updated `.env` but Warden is still using the old model, you may need to reload environment variables.
+    
+    **Fix for pm2:**
+    ```bash
+    pm2 restart warden --update-env
+    ```
+    
+    **Fix for dev mode:**
+    ```bash
+    # Stop with Ctrl+C, then restart
+    npm run dev
+    ```
+  </Accordion>
+</AccordionGroup>

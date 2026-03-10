@@ -1,0 +1,203 @@
+---
+title: 'Cron Job Commands'
+description: 'Manage scheduled tasks with /cronJobs and /deleteCron'
+---
+
+## Overview
+
+Warden supports scheduled recurring tasks using cron expressions. You can list active cron jobs and delete them via Telegram commands.
+
+## Commands
+
+### `/cronJobs` — List Active Cron Jobs
+
+Displays all active cron jobs with their schedules and next run times.
+
+```bash
+/cronJobs
+```
+
+#### Output Format
+
+```
+<job-id>  <name>  [<schedule>]  next: <next-run-time>  <instruction>
+```
+
+- **job-id** — First 8 characters of the cron job UUID
+- **name** — Human-readable job name
+- **schedule** — Cron expression (e.g., `0 8 * * *`) or interval (e.g., `every 3600000ms`)
+- **next-run-time** — Timestamp of next scheduled execution
+- **instruction** — First 50 characters of the job instruction (truncated with `...`)
+
+#### Example
+
+```
+You: /cronJobs
+Warden:
+a1b2c3d4  daily-backup  [0 2 * * *]  next: 3/11/2026, 2:00:00 AM  Run database backup and upload to S3...
+e5f6g7h8  health-check  [every 300000ms]  next: 3/10/2026, 5:15:00 PM  Check all services and alert if down
+```
+
+<Note>
+If there are no active cron jobs, you'll see: "No active cron jobs."
+</Note>
+
+### `/deleteCron <id>` — Delete a Cron Job
+
+Removes a cron job by ID prefix. The job will no longer execute.
+
+```bash
+/deleteCron <id-prefix>
+```
+
+#### Parameters
+
+- **id-prefix** — The first few characters of the cron job ID (minimum 1 character, typically 8 shown by `/cronJobs`)
+
+#### Examples
+
+```bash
+# Delete using 8-character prefix from /cronJobs output
+/deleteCron a1b2c3d4
+
+# Delete using shorter prefix (if unique)
+/deleteCron e5f6
+```
+
+#### Success Response
+
+```
+Warden: Deleted cron job: a1b2c3d4-5678-90ab-cdef-1234567890ab (daily-backup)
+```
+
+<Tip>
+You don't need the full UUID — just use the 8-character prefix shown by `/cronJobs`.
+</Tip>
+
+#### Error Cases
+
+```
+# No ID provided
+You: /deleteCron
+Warden: Usage: /deleteCron <id-prefix>
+
+# ID not found
+You: /deleteCron xyz123
+Warden: No cron job found matching "xyz123".
+```
+
+## Schedule Types
+
+Warden supports three types of schedules:
+
+| Type | Format | Example |
+|------|--------|--------|
+| **Cron expression** | Standard 5-field cron | `0 8 * * *` (daily at 8am) |
+| **Interval** | Milliseconds | `every 3600000ms` (every hour) |
+| **Fixed time** | ISO timestamp | `2026-03-15T14:00:00Z` |
+
+## Managing Cron Jobs via CLI
+
+For creating new cron jobs or editing existing ones, use the `cron-cli` tool on the server:
+
+```bash
+# Add a new cron job
+npx tsx src/cron-cli.ts add --name "job-name" --cron "0 8 * * *" --tz "America/Los_Angeles" --instruction "..."
+
+# List all cron jobs (including disabled)
+npx tsx src/cron-cli.ts list
+
+# Disable a cron job
+npx tsx src/cron-cli.ts update <id> --enabled false
+
+# Enable a cron job
+npx tsx src/cron-cli.ts update <id> --enabled true
+
+# Delete a cron job
+npx tsx src/cron-cli.ts delete <id>
+```
+
+<Note>
+Cron jobs are stored in the `warden_cron_jobs` Supabase table and checked by the runner every polling cycle.
+</Note>
+
+## Use Cases
+
+- **Daily backups** — Schedule database exports or file backups
+- **Health checks** — Monitor services and alert on failures
+- **Content publishing** — Automated blog posts or social media updates
+- **Data syncing** — Periodic imports from external APIs
+- **Reminders** — Daily standup notifications or task reminders
+
+## Warden's Built-in Cron Jobs
+
+Warden runs several automated content marketing jobs for [openclaws.blog](https://openclaws.blog):
+
+| Job Name | Schedule | Purpose |
+|----------|----------|--------|
+| `daily-v2cloud-scan` | Daily 8am PT | Monitor V2Cloud.com for content changes and generate complementary blog topic ideas |
+| `biweekly-blog-publish` | Wed + Sun 9am PT | Review topic ideas, write a full blog post, and publish to WordPress |
+| `Ting walk reminder` | Daily 3pm PT | Send walk reminder via Telegram |
+
+## Technical Details
+
+### `/cronJobs` Implementation
+
+Location: `src/telegram.ts:111-131`
+
+```typescript
+if (text === "/cronJobs" || text.startsWith("/cronJobs@")) {
+  try {
+    const jobs = await listCronJobs(true);
+    if (jobs.length === 0) {
+      await ctx.reply("No active cron jobs.");
+    } else {
+      const lines = jobs.map((j) => {
+        const schedule = j.schedule_type === "cron" ? j.cron_expression
+          : j.schedule_type === "every" ? `every ${j.every_ms}ms`
+          : j.at_time ?? "?";
+        const instr = j.instruction.length > 50 
+          ? j.instruction.slice(0, 47) + "..." 
+          : j.instruction;
+        const next = j.next_run_at 
+          ? new Date(j.next_run_at).toLocaleString() 
+          : "—";
+        return `${j.id.slice(0, 8)}  ${j.name}  [${schedule}]  next: ${next}  ${instr}`;
+      });
+      await ctx.reply(lines.join("\n"));
+    }
+  } catch (err) {
+    await ctx.reply("Failed to list cron jobs.").catch(() => {});
+  }
+  return;
+}
+```
+
+### `/deleteCron` Implementation
+
+Location: `src/telegram.ts:134-153`
+
+```typescript
+if (text.startsWith("/deleteCron ") || text.startsWith("/deleteCron@")) {
+  const idPrefix = text.replace(/^\/deleteCron(@\S+)?\s*/, "").trim();
+  if (!idPrefix) {
+    await ctx.reply("Usage: /deleteCron <id-prefix>");
+    return;
+  }
+  try {
+    const jobs = await listCronJobs();
+    const match = jobs.find(j => j.id.startsWith(idPrefix));
+    if (!match) {
+      await ctx.reply(`No cron job found matching "${idPrefix}".`);
+    } else {
+      await deleteCronJob(match.id);
+      await ctx.reply(`Deleted cron job: ${match.id} (${match.name})`);
+    }
+  } catch (err) {
+    await ctx.reply("Failed to delete cron job.").catch(() => {});
+  }
+  return;
+}
+```
+
+Both commands query the `warden_cron_jobs` table via `data_model/db.ts` helpers.

@@ -1,0 +1,151 @@
+---
+title: 'warden build'
+description: 'Compile TypeScript to JavaScript for production deployment'
+---
+
+## Overview
+
+The `build` command compiles Warden's TypeScript source code to JavaScript for production deployment. The compiled output is written to the `dist/` directory.
+
+## Usage
+
+```bash
+npm run build
+```
+
+## What It Does
+
+1. Runs the TypeScript compiler (`tsc`)
+2. Type-checks all source files
+3. Compiles `.ts` files to `.js` in the `dist/` directory
+4. Generates source maps for debugging
+5. Fails if any type errors are found
+
+## Output Location
+
+Compiled files are written to:
+
+```
+dist/
+├── index.js              # Main entry point
+├── runner.js             # Task runner
+├── telegram.js           # Telegram bot
+├── repl.js               # Interactive REPL
+├── cron-cli.js           # Cron management CLI
+├── config.js
+├── prompt.js
+├── logger.js
+├── session-store.js
+├── resolve-metadata.js
+└── data_model/
+    ├── index.js
+    ├── types.js
+    └── db.js
+```
+
+<Note>
+  The `dist/` directory is gitignored and should not be committed to version control.
+</Note>
+
+## TypeScript Configuration
+
+Build settings are defined in `tsconfig.json`:
+
+- **Target**: ES2022
+- **Module**: ES modules (`"type": "module"` in package.json)
+- **Strict mode**: Enabled
+- **Source maps**: Generated for debugging
+
+## Definition of Done
+
+Before committing changes, ensure the build passes:
+
+```bash
+npm run build
+```
+
+A task is only complete when:
+
+1. ✅ `npm run build` passes with no type errors
+2. ✅ `npm test` passes (all tests green)
+3. ✅ New functionality has tests in `tests/`
+4. ✅ No secrets are hardcoded
+5. ✅ Changes are committed with a descriptive message
+
+## Production Deployment
+
+### Running with pm2
+
+After building, use pm2 to run Warden as a persistent background service:
+
+<CodeGroup>
+
+```bash Start Warden
+npm run build && pm2 start dist/index.js --name warden
+```
+
+```bash Persist across reboots
+pm2 save && pm2 startup
+```
+
+```bash Rebuild and restart
+npm run build && pm2 restart warden
+```
+
+```bash Restart with new env vars
+pm2 restart warden --update-env
+```
+
+```bash Stop and remove
+pm2 delete warden && pm2 save --force
+```
+
+```bash Remove boot script
+pm2 unstartup launchd
+```
+
+</CodeGroup>
+
+<Note>
+  Warden runs 24/7 on a Mac Mini using pm2 for process management. The `startup` command configures pm2 to restart Warden automatically after system reboots.
+</Note>
+
+## Pre-commit Hooks
+
+Warden uses Husky to enforce quality checks before commits:
+
+1. **Type checking** - Runs `npm run build` to catch type errors
+2. **Test protection** - Blocks deletion or weakening of existing tests
+
+If the build fails, the commit is blocked.
+
+<Note>
+  Never bypass git hooks with `--no-verify` unless explicitly necessary. Hooks protect code quality and test coverage.
+</Note>
+
+## Troubleshooting
+
+### Build Fails with Type Errors
+
+Read the error output carefully. Common issues:
+
+- Missing type definitions (`@types/*` packages)
+- Incorrect imports (check file extensions for ES modules)
+- Type mismatches (ensure data model interfaces match Supabase schema)
+
+### Build Succeeds but Runtime Fails
+
+Check for:
+
+- Missing environment variables in `.env`
+- Incorrect file paths (use absolute paths, not relative)
+- Supabase connection issues (verify `SUPABASE_URL` and `SUPABASE_ANON_KEY`)
+
+## Related Commands
+
+- [warden dev](/commands/dev) - Run in development mode without building
+- [warden cron-cli](/commands/cron-cli) - Manage scheduled jobs
+
+## Source Reference
+
+Configured in `package.json:9` and `tsconfig.json`.

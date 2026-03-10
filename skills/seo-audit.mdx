@@ -1,0 +1,381 @@
+---
+title: 'SEO Audit Skill'
+description: 'On-page SEO checklist and keyword research workflow'
+icon: 'chart-line'
+---
+
+## Overview
+
+The `seo-audit` skill provides an on-page SEO checklist and keyword research workflow for blog posts. Load this skill before publishing to verify SEO elements.
+
+**Skill file**: `~/workspace/source/skills/seo-audit.md`
+
+**Trigger**: When auditing a blog post for SEO, doing keyword research, or checking on-page optimization
+
+## On-Page SEO Checklist
+
+Run through this checklist for every post before publishing:
+
+### Title & Meta
+
+<AccordionGroup>
+  <Accordion title="Title Tag" icon="heading">
+    - **Length**: Under 60 characters (55-60 is ideal)
+    - **Keyword**: Includes primary keyword naturally
+    - **Compelling**: Benefit-driven or question-based
+    
+    **Example**: "Why Your Laptop Is Killing Your AI Automation" (54 chars)
+  </Accordion>
+  
+  <Accordion title="Meta Description" icon="file-lines">
+    - **Length**: 150-160 characters
+    - **Keyword**: Includes primary keyword
+    - **CTA**: Has a call to action
+    
+    **Example**: "Running AI agents on your laptop? Here's why dedicated hardware saves you time and money. Learn the business case for always-on automation." (158 chars)
+  </Accordion>
+  
+  <Accordion title="URL Slug" icon="link">
+    - **Short**: 3-5 words max
+    - **Keyword-rich**: Includes primary keyword
+    - **Hyphenated**: Use hyphens, not underscores
+    
+    **Example**: `/laptop-ai-agent-problems` or `/dedicated-hardware-ai`
+  </Accordion>
+</AccordionGroup>
+
+### Content Structure
+
+<AccordionGroup>
+  <Accordion title="H1 Tag" icon="h1">
+    - **One per page** (never multiple H1s)
+    - **Matches title intent** (can differ slightly for readability)
+    - **Includes primary keyword** naturally
+  </Accordion>
+  
+  <Accordion title="H2 Tags" icon="h2">
+    - **4-8 per post** for 2,000-3,000 word content
+    - **Include secondary keywords** naturally
+    - Examples: "The Problem", "The Solution", "Real-World Example", "Getting Started", "FAQ"
+  </Accordion>
+  
+  <Accordion title="H3 Tags" icon="h3">
+    - Used for **subsections under H2s**
+    - Never skip heading levels (don't jump from H2 to H4)
+    - Can include long-tail keyword variants
+  </Accordion>
+  
+  <Accordion title="First 100 Words" icon="paragraph">
+    Primary keyword must appear **naturally** in the opening paragraphs.
+    
+    **Why**: Search engines weight early content more heavily. Readers confirm they're in the right place.
+  </Accordion>
+  
+  <Accordion title="Word Count" icon="file-word">
+    - **Target**: 2,000-3,000 words
+    - **Why**: Long-form content ranks better for informational queries
+    - **Note**: Quality over quantity — don't pad for word count
+  </Accordion>
+</AccordionGroup>
+
+### Keywords
+
+<AccordionGroup>
+  <Accordion title="Primary Keyword" icon="key">
+    Should appear in:
+    - Title tag
+    - H1
+    - First paragraph (ideally first 100 words)
+    - 1-2 H2 headings
+    - Conclusion
+    
+    **Example**: If primary keyword is "local AI agent", it should appear ~8-12 times in a 2,500-word post.
+  </Accordion>
+  
+  <Accordion title="Keyword Density" icon="percent">
+    - **Target**: 1-2% of total words
+    - **Test**: Search (Cmd/Ctrl+F) for your keyword — does it feel natural?
+    - **Avoid**: Keyword stuffing (using keyword unnaturally or excessively)
+  </Accordion>
+  
+  <Accordion title="Secondary Keywords" icon="tags">
+    - **2-3 related terms** woven throughout
+    - Examples: If primary is "AI agent", secondary might be "AI assistant", "automation tool", "AI workflow"
+  </Accordion>
+  
+  <Accordion title="LSI Keywords" icon="layer-group">
+    **Latent Semantic Indexing** keywords = related phrases and synonyms
+    
+    **Example**: For "AI agent", LSI keywords include:
+    - AI automation
+    - Intelligent assistant
+    - AI-powered workflow
+    - Autonomous agent
+    - AI tool
+  </Accordion>
+</AccordionGroup>
+
+### Links
+
+<AccordionGroup>
+  <Accordion title="Internal Links" icon="link">
+    - **Minimum**: Link to 2-3 other posts on openclaws.blog
+    - **Placement**: Natural within body text, not forced
+    - **Anchor text**: Descriptive (not "click here")
+    
+    **Example**: "Learn how to [set up OpenClaw on Ubuntu](/setup-openclaw-ubuntu) in under 10 minutes."
+  </Accordion>
+  
+  <Accordion title="External Links" icon="arrow-up-right-from-square">
+    - **Minimum**: 1-2 authoritative sources
+    - **Purpose**: Cite data, reference documentation, link to reputable sites
+    - **Examples**: Documentation sites, research papers, GitHub repos, industry reports
+  </Accordion>
+  
+  <Accordion title="Anchor Text" icon="text">
+    - **Descriptive**: Use the target keyword or a natural phrase
+    - **Avoid**: "click here", "this link", "read more" (non-descriptive)
+    
+    ✅ Good: "Read our [comparison of local AI assistants](/local-ai-comparison)"
+    ❌ Bad: "Click [here](/local-ai-comparison) to read more"
+  </Accordion>
+  
+  <Accordion title="Broken Links" icon="link-slash">
+    Before publishing, verify all links work:
+    ```bash
+    # Check for 404s (if you have a link checker installed)
+    wget --spider -r -nd -nv -l 1 https://openclaws.blog/YOUR-POST-SLUG 2>&1 | grep -B 2 '404'
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Media
+
+<AccordionGroup>
+  <Accordion title="Images" icon="image">
+    - **Minimum**: 1-2 relevant images or diagrams per post
+    - **Purpose**: Break up text, illustrate concepts, improve engagement
+    - **Format**: WebP or PNG/JPG (optimized for web)
+  </Accordion>
+  
+  <Accordion title="Alt Text" icon="closed-captioning">
+    Every image needs descriptive alt text:
+    - **Describe the image** for screen readers
+    - **Include keyword** where natural (not forced)
+    
+    **Example**: `<img src="mac-mini-ai-setup.jpg" alt="Mac Mini connected to monitor running OpenClaw AI agent">`
+  </Accordion>
+  
+  <Accordion title="File Names" icon="file-image">
+    Use descriptive file names, not generic ones:
+    
+    ✅ Good: `local-ai-agent-architecture.png`
+    ❌ Bad: `screenshot-1.png`, `IMG_1234.jpg`
+  </Accordion>
+</AccordionGroup>
+
+### Readability
+
+<AccordionGroup>
+  <Accordion title="Short Paragraphs" icon="paragraph">
+    - **Target**: 2-4 sentences max per paragraph
+    - **Why**: Easier to scan on mobile devices
+  </Accordion>
+  
+  <Accordion title="Scannable" icon="list">
+    Make content easy to skim:
+    - **Bold** key terms
+    - **Lists** for features and steps
+    - **Tables** for comparisons
+  </Accordion>
+  
+  <Accordion title="Comparison Table" icon="table">
+    At least **one comparison table** per post:
+    - 3+ columns, 5+ rows
+    - Structured data that search engines can parse
+    - Makes complex info scannable
+  </Accordion>
+  
+  <Accordion title="FAQ Section" icon="question">
+    3-6 questions targeting "People Also Ask" queries:
+    - Use natural language (how people ask AI assistants)
+    - 50-150 words per answer
+    - Address common objections
+  </Accordion>
+</AccordionGroup>
+
+## Keyword Research Workflow
+
+### 1. Find What People Are Asking
+
+Use CLI tools to discover trending topics and questions:
+
+```bash
+# Scan Reddit for common questions
+au reddit search "how to [topic]" top month 10
+au reddit search "[topic] vs" top month 10
+au reddit search "[topic] best" top month 10
+
+# Check Hacker News for trending discussions
+au news latest --provider hacker-news --limit 15
+
+# Look at YouTube for popular tutorial topics
+au youtube transcript "https://www.youtube.com/watch?v=VIDEO_ID"
+```
+
+See `~/workspace/source/skills/research.md` for more research commands.
+
+### 2. Analyze Search Intent
+
+For each keyword, identify the user's intent:
+
+| Intent | Signal | Content Type |
+|--------|--------|-------------|
+| **Informational** | "what is", "how to", "guide" | Blog post, tutorial |
+| **Comparison** | "vs", "best", "alternative" | Comparison post with table |
+| **Transactional** | "download", "install", "setup" | Tutorial with CTA |
+| **Navigational** | Brand name, product name | Landing page or docs |
+
+**Example**: "local AI agent setup" is **transactional** (user wants to install something) → write a tutorial with step-by-step setup.
+
+### 3. Evaluate Keyword Difficulty
+
+No paid SEO tools needed — use these proxies:
+
+<CardGroup cols={2}>
+  <Card title="Reddit Engagement" icon="reddit">
+    High upvotes/comments = validated demand. If a Reddit thread about the topic has 500+ upvotes, there's real interest.
+  </Card>
+  <Card title="HN Discussion" icon="y-combinator">
+    Front page = strong interest. Topics that hit HN front page are worth writing about.
+  </Card>
+  <Card title="Existing Content Quality" icon="magnifying-glass">
+    Google the keyword. Can we write something significantly better than what's ranking?
+  </Card>
+  <Card title="Long-Tail Opportunity" icon="arrow-down">
+    More specific = easier to rank. "local ai agent mac setup" is easier than "ai agent".
+  </Card>
+</CardGroup>
+
+### 4. Build a Keyword Cluster
+
+For each blog post, define:
+
+- **Primary keyword** — Main topic (1 phrase)
+  - Example: "dedicated hardware for AI agents"
+- **Secondary keywords** — 2-3 related terms
+  - Examples: "AI agent hosting", "always-on automation", "Mac Mini AI setup"
+- **Long-tail variants** — 3-5 specific phrases
+  - Examples: "why use dedicated hardware for AI", "best hardware for local AI agents", "Mac Mini vs laptop for AI agents"
+- **Questions to answer** — 3-6 "People Also Ask" style questions for FAQ
+  - Examples: "Can I run AI agents on my laptop?", "How much does dedicated hardware cost?", "Is Mac Mini good for AI agents?"
+
+## Post-Publish SEO Check
+
+After publishing, verify SEO elements are live:
+
+```bash
+# Get the published post
+wp post get <post-id> --field=post_content --ssh="$WP_SSH"
+
+# Check title and slug
+wp post get <post-id> --fields=post_title,post_name,post_status --ssh="$WP_SSH"
+```
+
+**Manual checks**:
+
+1. **Visit the live URL** — does it render correctly?
+2. **View page source** (right-click → View Page Source) — is the title tag and meta description correct?
+3. **Internal links** — do 2-3 related existing posts link back to this new post?
+4. **Update the content calendar** — mark as published in `content/calendar.md`
+
+## SEO Tools
+
+Warden uses CLI tools instead of paid SEO software:
+
+| Task | Tool | Command |
+|------|------|--------|
+| Find trending topics | `au` | `au reddit hot LocalLLaMA 10` |
+| Check HN discussions | `au` | `au news latest --provider hacker-news --limit 15` |
+| Extract YouTube insights | `au` | `au youtube transcript URL` |
+| Verify live post | `wp-cli` | `wp post get <id> --ssh="$WP_SSH"` |
+
+<Note>
+**About `au`**: The `au` CLI tool (automation toolkit) is used for research. It's not part of Warden — it's a separate tool Warden calls via bash. See the [research skill](~/workspace/source/skills/research.md) for full `au` command reference.
+</Note>
+
+## AEO (Answer Engine Optimization)
+
+Modern SEO includes optimizing for AI answer engines (ChatGPT, Perplexity, Google AI Overviews).
+
+**Key differences from traditional SEO**:
+
+| Traditional SEO | Answer Engine Optimization (AEO) |
+|-----------------|----------------------------------|
+| Optimize for ranking position | Optimize for being quoted/cited |
+| Target Google search | Target ChatGPT, Perplexity, Claude |
+| Keyword density matters | Clear definitions and Q&A patterns matter |
+| Backlinks are critical | First-party data and expertise are critical |
+
+<Card title="Load the AEO Skill" icon="robot">
+For the full AEO checklist, load the `aeo-audit` skill:
+
+```bash
+"Use the aeo-audit skill to check this post for Answer Engine Optimization."
+```
+
+See `~/workspace/source/skills/aeo-audit.md`.
+</Card>
+
+## Loading the Skill
+
+Warden loads this skill when auditing SEO. You can also load it explicitly:
+
+```bash
+# In a task instruction
+"Audit this post for SEO using the seo-audit skill."
+```
+
+## Real Example
+
+Here's how the skill guides an SEO audit:
+
+**User request**: "Audit the latest blog post for SEO before publishing."
+
+**Warden's workflow**:
+1. Load `seo-audit` skill → understand checklist items
+2. Read the draft post content
+3. Check title tag: "Why Your Laptop Is Killing Your AI Automation" — 54 chars ✅, includes primary keyword ✅
+4. Check meta description: Present? 150-160 chars? Includes keyword? Has CTA?
+5. Check URL slug: `/laptop-ai-automation-problems` — short ✅, hyphenated ✅, keyword-rich ✅
+6. Check H1: Matches title intent? Includes keyword?
+7. Check H2s: 4-8 present? Include secondary keywords?
+8. Check first 100 words: Does primary keyword appear naturally?
+9. Check internal links: Found 3 links to other posts ✅
+10. Check external links: Found 2 citations (GitHub, research paper) ✅
+11. Check images: 2 images, both have descriptive alt text ✅
+12. Check FAQ section: 5 Q&A pairs ✅
+13. Report findings: "SEO audit complete. All checklist items passed. Ready to publish."
+
+## Related Skills
+
+<CardGroup cols={2}>
+  <Card title="Content Writing" icon="pen" href="/skills/content-writing">
+    Writing structure and style guide (run before SEO audit)
+  </Card>
+  <Card title="Publishing" icon="upload" href="/skills/publishing">
+    Publish the SEO-optimized post to WordPress
+  </Card>
+  <Card title="Research" icon="magnifying-glass">
+    Find trending topics for keyword research
+  </Card>
+  <Card title="AEO Audit" icon="robot">
+    Optimize for AI answer engines (ChatGPT, Perplexity)
+  </Card>
+</CardGroup>
+
+## Source Code Reference
+
+- **Skill file**: `~/workspace/source/skills/seo-audit.md`
+- **Skill loader**: `~/workspace/source/src/skill-tool.ts:103-137`
+- **Research skill** (for keyword research): `~/workspace/source/skills/research.md`

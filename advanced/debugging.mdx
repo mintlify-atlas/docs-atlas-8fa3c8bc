@@ -1,0 +1,549 @@
+---
+title: Debugging
+description: Debugging Warden agent behavior, tasks, and sessions
+---
+
+Warden provides multiple layers of observability: terminal logs, database logging, and session persistence. This guide shows how to debug common issues.
+
+## Logging Layers
+
+Warden writes logs to three places:
+
+1. **Terminal output** — real-time logs from `runner.ts`, `telegram.ts`, and `session-store.ts`
+2. **log.txt file** — persistent copy of terminal output (via `npm run dev 2>&1 | tee log.txt`)
+3. **Supabase tables** — `agent_steps` and `conversation_history` for post-mortem analysis
+
+### Terminal Logs
+
+Start Warden with output tee'd to a file:
+
+```bash
+npm run dev 2>&1 | tee log.txt
+```
+
+Key log prefixes:
+
+| Prefix | Source | What It Logs |
+|--------|--------|-------------|
+| `[runner]` | `src/runner.ts` | Task polling, execution, completion |
+| `[telegram]` | `src/telegram.ts` | Incoming messages, outgoing replies |
+| `[repl]` | `src/repl.ts` | Interactive commands, task submissions |
+| `[session-store]` | `src/session-store.ts` | Session creation, cache hits, resets |
+
+<Tip>
+Use `grep` to filter logs by task ID:
+```bash
+grep "task-abc123" log.txt
+```
+</Tip>
+
+### Database Logs
+
+Every agent step is recorded in the `agent_steps` table:
+
+<CodeGroup>
+
+```sql Query Agent Steps
+SELECT
+  step_type,
+  tool_name,
+  tool_args,
+  tool_result,
+  is_error,
+  tokens_in,
+  tokens_out,
+  cost_usd,
+  created_at
+FROM agent_steps
+WHERE task_id = 'your-task-id'
+ORDER BY created_at ASC;
+```
+
+```sql Find Failed Tasks
+SELECT id, instruction, error, created_at
+FROM warden_tasks
+WHERE status = 'failed'
+ORDER BY created_at DESC
+LIMIT 10;
+```
+
+```sql Total Cost by Task
+SELECT
+  task_id,
+  SUM(tokens_in) as total_tokens_in,
+  SUM(tokens_out) as total_tokens_out,
+  SUM(cost_usd) as total_cost
+FROM agent_steps
+GROUP BY task_id
+ORDER BY total_cost DESC;
+```
+
+</CodeGroup>
+
+### Event Types
+
+From `src/logger.ts`, Warden tracks these event types:
+
+| Event Type | Logged Data | Purpose |
+|------------|-------------|----------|
+| `tool_start` | `tool_name`, `tool_args` | Record when a tool is invoked |
+| `tool_end` | `tool_name`, `tool_result`, `is_error` | Record tool output (up to 10KB) |
+| `turn_end` | `tokens_in`, `tokens_out`, `cost_usd` | Track LLM usage per turn |
+| `agent_end` | Total tokens and cost | Final totals for the task |
+
+## Debugging Task Execution
+
+### Step 1: Find the Task
+
+Query the task from Supabase:
+
+```typescript
+import { getTask } from "./src/data_model/index.js";
+
+const task = await getTask("task-uuid");
+console.log(task);
+```
+
+Check:
+- `status` — should be `pending`, `running`, `done`, or `failed`
+- `error` — if status is `failed`, this contains the error message
+- `claimed_at` — when the runner picked up the task
+- `completed_at` — when it finished
+
+### Step 2: Check Agent Steps
+
+See what the agent actually did:
+
+```typescript
+import { getAgentSteps } from "./src/data_model/index.js";
+
+const steps = await getAgentSteps("task-uuid");
+steps.forEach((s) => {
+  console.log(`[${s.step_type}] ${s.tool_name ?? ""} - ${s.is_error ? "ERROR" : "OK"}`);
+  if (s.tool_result) console.log(s.tool_result.slice(0, 200));
+});
+```
+
+### Step 3: Inspect Conversation History
+
+For persistent sessions (Telegram, REPL), check what the agent remembers:
+
+```typescript
+import { getConversationHistory } from "./src/data_model/index.js";
+
+const history = await getConversationHistory("task-uuid");
+if (history?.messages) {
+  console.log(JSON.stringify(history.messages, null, 2));
+}
+```
+
+### Step 4: Check Session Files
+
+Persistent sessions are stored in `~/.warden/sessions/`:
+
+```bash
+# List all session directories
+ls -lh ~/.warden/sessions/
+
+# View Telegram chat session
+cat ~/.warden/sessions/telegram-123456789/*.jsonl
+
+# View REPL session
+cat ~/.warden/sessions/repl/*.jsonl
+```
+
+<Tip>
+Session files are JSONL (one JSON object per line). Each line is a message or system event.
+</Tip>
+
+## Common Issues
+
+### Issue: Task Stuck in "running" Status
+
+**Symptoms:**
+- Task shows `status: "running"` in database
+- No recent logs for that task ID
+- Runner continues polling but ignores the task
+
+**Cause:** Warden crashed or was killed while executing the task.
+
+**Fix:** The runner automatically marks stuck tasks as failed on startup. Wait 5 minutes (stale threshold), then restart:
+
+```bash
+npm run build && pm2 restart warden
+```
+
+Or manually mark it failed:
+
+```typescript
+import { failTask } from "./src/data_model/index.js";
+await failTask("stuck-task-uuid", "Marked failed after crash");
+```
+
+### Issue: Agent Forgets Previous Conversation
+
+**Symptoms:**
+- Telegram or REPL task doesn't remember context from previous task
+- Session logs show "persistent" but behavior is stateless
+
+**Causes:**
+1. Task metadata is missing or incorrect
+2. Session was recently reset via `/new`
+3. Session files were manually deleted
+
+**Debug:**
+
+Check session key derivation:
+
+```typescript src/session-store.ts
+export function deriveSessionKey(metadata: Record<string, unknown> | null | undefined): string | null {
+  if (!metadata) return null;
+  if (metadata.cron) return null; // cron tasks are stateless
+
+  if (metadata.source === "telegram" && metadata.chatId != null) {
+    return `telegram-${metadata.chatId}`;
+  }
+  if (metadata.source === "repl") {
+    return "repl";
+  }
+  return null;
+}
+```
+
+Verify the task has correct metadata:
+
+```typescript
+const task = await getTask("task-uuid");
+console.log(task.metadata);
+// Should be: { source: "telegram", chatId: 123456 }
+```
+
+Check if session files exist:
+
+```bash
+ls -lh ~/.warden/sessions/telegram-123456/
+```
+
+**Fix:**
+
+If metadata is wrong, the task was inserted incorrectly. For Telegram tasks, check `telegram.ts` message handling.
+
+If session files are missing, the session was never created or was manually deleted. The next task will start fresh.
+
+### Issue: Cron Job Not Firing
+
+**Symptoms:**
+- Cron job exists (`npx tsx src/cron-cli.ts list` shows it)
+- Current time is past the scheduled time
+- No task was created in `warden_tasks`
+
+**Causes:**
+1. Job is disabled
+2. Scheduler is not running (Warden not started)
+3. Cron expression is incorrect
+4. Timezone mismatch
+
+**Debug:**
+
+Check job details:
+
+```bash
+npx tsx src/cron-cli.ts get <job-id>
+```
+
+Verify:
+- `enabled: true`
+- `next_run` is in the future (or just passed)
+- `timezone` matches your expectation
+
+Check if Warden is running:
+
+```bash
+pm2 status warden
+```
+
+Test the cron expression:
+
+```bash
+npx tsx -e "import parser from 'cron-parser'; console.log(parser.parseExpression('0 8 * * *', { tz: 'America/Los_Angeles' }).next().toString());"
+```
+
+**Fix:**
+
+Enable the job:
+
+```bash
+npx tsx src/cron-cli.ts update <job-id> --enabled true
+```
+
+Manually fire it to test:
+
+```bash
+npx tsx src/cron-cli.ts run <job-id>
+```
+
+Watch the runner logs to see it execute:
+
+```bash
+tail -f log.txt | grep "task"
+```
+
+### Issue: High Token Usage / Cost
+
+**Symptoms:**
+- Task completes successfully but uses way more tokens than expected
+- `agent_steps` shows many `turn_end` events
+- Cost is unusually high
+
+**Causes:**
+1. Agent is stuck in a loop (e.g., retrying a failing tool call)
+2. Persistent session has accumulated too much history
+3. Task instruction is too open-ended
+
+**Debug:**
+
+Query token usage:
+
+```sql
+SELECT
+  step_type,
+  tool_name,
+  tokens_in,
+  tokens_out,
+  cost_usd
+FROM agent_steps
+WHERE task_id = 'expensive-task-uuid'
+ORDER BY created_at ASC;
+```
+
+Check turn count:
+
+```sql
+SELECT COUNT(*) as num_turns
+FROM agent_steps
+WHERE task_id = 'expensive-task-uuid'
+AND step_type = 'turn_end';
+```
+
+If `num_turns > 10`, the agent took many turns. Inspect `tool_result` to see if tools are failing repeatedly.
+
+**Fix:**
+
+1. **For looping behavior:** Fix the underlying issue (e.g., tool returning errors)
+2. **For large session history:** Reset the session with `/new` (Telegram/REPL)
+3. **For vague instructions:** Make the task instruction more specific and constrained
+
+<Tip>
+Cron tasks are always stateless (no session history), so they won't accumulate context over time.
+</Tip>
+
+## Debugging Tools
+
+### Tool 1: Watch Logs in Real-Time
+
+Filter logs by task ID as they stream:
+
+```bash
+tail -f log.txt | grep --line-buffered "task-abc123"
+```
+
+### Tool 2: Inspect Session State
+
+Parse the JSONL session file to see message history:
+
+```bash
+cat ~/.warden/sessions/telegram-123456/*.jsonl | jq '.'
+```
+
+Count messages:
+
+```bash
+cat ~/.warden/sessions/telegram-123456/*.jsonl | wc -l
+```
+
+### Tool 3: Supabase Dashboard
+
+Use the Supabase web UI to browse tables:
+
+1. Go to your Supabase project dashboard
+2. Navigate to **Table Editor**
+3. Select `warden_tasks`, `agent_steps`, or `conversation_history`
+4. Filter by `task_id` or `created_at`
+
+### Tool 4: Manual Task Injection
+
+Test the runner by inserting a minimal task:
+
+```typescript
+import { insertTask } from "./src/data_model/index.js";
+
+const task = await insertTask({
+  instruction: "Reply with exactly: Hello from debug task",
+  metadata: { source: "repl" },
+});
+
+console.log(`Created task: ${task.id}`);
+```
+
+Watch the runner logs to see it execute.
+
+### Tool 5: Session Reset
+
+Force a session reset without waiting for `/new`:
+
+```typescript
+import { markNewSession } from "./src/session-store.js";
+
+markNewSession("telegram-123456");
+// Or
+markNewSession("repl");
+```
+
+The next task from that source will start a fresh session.
+
+## Advanced Debugging
+
+### Enable Verbose Logging
+
+Set environment variables for more detailed logs:
+
+```bash .env
+NODE_OPTIONS="--trace-warnings"
+# Log all LLM API calls
+DEBUG="pi-ai:*"
+```
+
+### Inspect Tool Call Arguments
+
+From `src/runner.ts`, tool calls are logged with full arguments:
+
+```typescript src/runner.ts
+if (event.type === "tool_execution_start") {
+  const toolEvent = event as any;
+  const argsStr = toolEvent.args ? JSON.stringify(toolEvent.args, null, 2) : "";
+  console.log(`[runner] [task ${ctx.taskId}] tool_start: ${toolEvent.toolName ?? "unknown"}\n${argsStr}`);
+}
+```
+
+Check `log.txt` for `[runner] [task ...] tool_start:` lines to see what the agent attempted.
+
+### Trace Session Manager Behavior
+
+Add debug logs to `src/session-store.ts`:
+
+```typescript
+export async function getSessionForTask(task: Task, provider: string, modelId: string): Promise<AgentSession> {
+  const key = deriveSessionKey(task.metadata);
+  console.log(`[session-store] Task ${task.id}: derived key = ${key}`);
+
+  if (!key) {
+    console.log(`[session-store] Creating stateless in-memory session`);
+    return buildSession(SessionManager.inMemory(), provider, modelId);
+  }
+
+  const cached = sessionCache.get(key);
+  if (cached) {
+    console.log(`[session-store] Cache hit for ${key}`);
+    return cached;
+  }
+
+  console.log(`[session-store] Cache miss — loading from disk: ${key}`);
+  // ...
+}
+```
+
+### Compare Session Files
+
+If session reset behavior is unclear, diff the session file before and after:
+
+```bash
+cp ~/.warden/sessions/repl/session-*.jsonl before.jsonl
+# (execute task)
+cp ~/.warden/sessions/repl/session-*.jsonl after.jsonl
+diff before.jsonl after.jsonl
+```
+
+## Performance Profiling
+
+### Measure Task Latency
+
+```sql
+SELECT
+  id,
+  instruction,
+  EXTRACT(EPOCH FROM (completed_at - claimed_at)) as duration_seconds
+FROM warden_tasks
+WHERE status = 'done'
+ORDER BY duration_seconds DESC
+LIMIT 10;
+```
+
+### Identify Expensive Tools
+
+```sql
+SELECT
+  tool_name,
+  COUNT(*) as num_calls,
+  AVG(tokens_in) as avg_tokens_in,
+  AVG(tokens_out) as avg_tokens_out,
+  SUM(cost_usd) as total_cost
+FROM agent_steps
+WHERE step_type = 'turn_end'
+AND tool_name IS NOT NULL
+GROUP BY tool_name
+ORDER BY total_cost DESC;
+```
+
+### Track Runner Health
+
+Monitor stuck tasks and failure rate:
+
+```sql
+SELECT
+  status,
+  COUNT(*) as count
+FROM warden_tasks
+GROUP BY status;
+```
+
+If many tasks are stuck in `running`, the runner is crashing or hanging.
+
+## Debugging Checklist
+
+When a task fails or behaves unexpectedly:
+
+<Steps>
+  <Step title="Check task status and error">
+    ```typescript
+    const task = await getTask("task-uuid");
+    console.log(task.status, task.error);
+    ```
+  </Step>
+
+  <Step title="Review agent steps">
+    ```typescript
+    const steps = await getAgentSteps("task-uuid");
+    steps.forEach((s) => console.log(s.step_type, s.tool_name, s.is_error));
+    ```
+  </Step>
+
+  <Step title="Inspect terminal logs">
+    ```bash
+    grep "task-uuid" log.txt
+    ```
+  </Step>
+
+  <Step title="Check session metadata">
+    ```typescript
+    const key = deriveSessionKey(task.metadata);
+    console.log("Session key:", key);
+    ```
+  </Step>
+
+  <Step title="Verify session files (if persistent)">
+    ```bash
+    ls -lh ~/.warden/sessions/
+    cat ~/.warden/sessions/<key>/*.jsonl | tail -n 20
+    ```
+  </Step>
+</Steps>

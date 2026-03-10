@@ -1,0 +1,653 @@
+---
+title: Installation
+description: Complete setup guide for Warden including dependencies, database configuration, and 24/7 operation with pm2
+---
+
+This guide covers everything needed to install and run Warden in production, including database setup, environment configuration, and 24/7 operation with pm2.
+
+## System Requirements
+
+<CardGroup cols={2}>
+
+<Card title="Node.js" icon="node-js">
+  **Version 18 or higher**
+  
+  Warden uses ES modules and native Node.js features requiring v18+.
+</Card>
+
+<Card title="Supabase" icon="database">
+  **Free tier or higher**
+  
+  Acts as task queue and persistence layer. No external queue service needed.
+</Card>
+
+<Card title="LLM Provider" icon="brain">
+  **Anthropic or OpenRouter**
+  
+  Requires API key for Claude models (Anthropic) or multi-provider access (OpenRouter).
+</Card>
+
+<Card title="Operating System" icon="desktop">
+  **Mac, Linux, or WSL**
+  
+  Designed for Unix-like systems. Tested on macOS and Ubuntu.
+</Card>
+
+</CardGroup>
+
+## Installation Steps
+
+<Steps>
+
+### Install Node.js
+
+Verify Node.js version:
+
+```bash
+node --version
+```
+
+Expected output: `v18.0.0` or higher.
+
+If not installed, download from [nodejs.org](https://nodejs.org/) or use a version manager:
+
+<CodeGroup>
+
+```bash nvm
+# Install nvm (Node Version Manager)
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+
+# Install Node.js 20 LTS
+nvm install 20
+nvm use 20
+```
+
+```bash Homebrew (macOS)
+brew install node@20
+```
+
+```bash apt (Ubuntu/Debian)
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+
+</CodeGroup>
+
+### Clone Repository
+
+Clone Warden to your local machine:
+
+```bash
+git clone https://github.com/your-org/warden.git
+cd warden
+```
+
+### Install Dependencies
+
+Install all required packages:
+
+```bash
+npm install
+```
+
+This installs:
+
+| Package | Purpose |
+|---------|----------|
+| `@mariozechner/pi-coding-agent` | Agent session and built-in tools (read/write/edit/bash) |
+| `@mariozechner/pi-ai` | Unified LLM API across providers |
+| `@supabase/supabase-js` | Supabase client for database operations |
+| `grammy` | Telegram Bot API framework (optional) |
+| `dotenv` | Environment variable loading |
+| `cron-parser` | Cron expression parsing for scheduled jobs |
+
+<Note>
+Development dependencies include TypeScript, tsx (TypeScript runner), and Husky (git hooks for test protection).
+</Note>
+
+### Set Up Supabase
+
+Warden uses Supabase as both task queue and persistence layer.
+
+#### Create Supabase Project
+
+1. Go to [supabase.com](https://supabase.com) and sign up/login
+2. Click **New Project**
+3. Name your project (e.g., "warden-prod")
+4. Choose a database password (save this)
+5. Select a region close to you
+6. Click **Create new project**
+
+#### Get API Credentials
+
+Once created:
+
+1. Go to **Settings** → **API**
+2. Copy these values:
+   - **Project URL** (e.g., `https://abc123.supabase.co`)
+   - **anon public key** (starts with `eyJ...`)
+
+<Warning>
+Use the **anon public key**, not the service role key. Warden's security model assumes row-level security policies (future enhancement).
+</Warning>
+
+### Run Database Migrations
+
+Warden requires three tables. Run migrations in the Supabase SQL Editor:
+
+#### Migration 1: Initial Schema
+
+1. Open **SQL Editor** in Supabase dashboard
+2. Click **New Query**
+3. Copy contents of `supabase/migrations/001_initial_schema.sql`
+4. Click **Run**
+
+This creates:
+- `warden_tasks` - Task queue with status lifecycle (pending → running → done/failed)
+- `warden_agent_steps` - Append-only event log for tool calls and token usage
+- `warden_conversation_history` - Full message arrays for crash recovery
+
+<CodeGroup>
+
+```sql Key Table: warden_tasks
+create table if not exists warden_tasks (
+  id uuid primary key default gen_random_uuid(),
+  instruction text not null,
+  status text not null default 'pending'
+    check (status in ('pending', 'running', 'done', 'failed')),
+  result text,
+  error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  started_at timestamptz,
+  completed_at timestamptz
+);
+
+create index idx_warden_tasks_status 
+  on warden_tasks (status, created_at asc);
+```
+
+```sql Key Table: warden_agent_steps
+create table if not exists warden_agent_steps (
+  id bigint generated always as identity primary key,
+  task_id uuid not null references warden_tasks(id) on delete cascade,
+  step_type text not null,
+  tool_name text,
+  tool_args jsonb,
+  tool_result text,
+  is_error boolean not null default false,
+  tokens_in int,
+  tokens_out int,
+  cost_usd numeric(10, 6),
+  created_at timestamptz not null default now()
+);
+
+create index idx_warden_agent_steps_task_id 
+  on warden_agent_steps (task_id, created_at asc);
+```
+
+</CodeGroup>
+
+#### Migration 2: Task Metadata
+
+```sql
+-- Adds metadata column for integration context (e.g., Telegram chat IDs)
+alter table warden_tasks add column if not exists metadata jsonb;
+```
+
+#### Migration 3: Cron Jobs
+
+```sql
+-- Adds scheduled job support
+create table if not exists warden_cron_jobs (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  enabled boolean not null default true,
+  schedule_type text not null check (schedule_type in ('cron', 'at', 'every')),
+  cron_expression text,
+  cron_timezone text not null default 'UTC',
+  instruction text not null,
+  task_metadata jsonb,
+  last_run_at timestamptz,
+  next_run_at timestamptz,
+  -- ... see full schema in migration file
+);
+```
+
+<Note>
+All migration SQL is in `supabase/migrations/`. Copy the complete file contents—code examples above are abbreviated.
+</Note>
+
+### Configure Environment Variables
+
+Create your `.env` file from the template:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and fill in required values:
+
+```bash .env
+# ============================================================
+# Supabase (REQUIRED)
+# ============================================================
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+# ============================================================
+# LLM Providers (REQUIRED - choose one)
+# ============================================================
+
+# Anthropic (recommended)
+ANTHROPIC_API_KEY=sk-ant-api03-...
+
+# OR OpenRouter (alternative multi-provider access)
+# OPENROUTER_API_KEY=sk-or-v1-...
+
+# ============================================================
+# Optional Integrations
+# ============================================================
+
+# Telegram Bot (enables Telegram task submission)
+# TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+
+# WordPress Publishing (enables wp-cli remote commands)
+# WP_SSH=user@ssh.wp.com
+```
+
+<Warning>
+**Security Notes:**
+- Never commit `.env` to version control (pre-configured in `.gitignore`)
+- Use environment-specific `.env` files for dev/staging/prod
+- Rotate API keys regularly
+- Store production secrets in a secret manager (e.g., AWS Secrets Manager, 1Password)
+</Warning>
+
+### Verify Installation
+
+Run the build to verify TypeScript compilation:
+
+```bash
+npm run build
+```
+
+Expected output:
+
+```plaintext
+> warden@0.1.0 build
+> tsc
+
+(no errors)
+```
+
+Start development server:
+
+```bash
+npm run dev
+```
+
+Expected output:
+
+```plaintext
+Warden starting — provider: anthropic, model: claude-sonnet-4-20250514
+Telegram bot disabled (no TELEGRAM_BOT_TOKEN)
+Cron scheduler started
+Runner started — polling every 2s
+Warden REPL. /new = reset, /context = show context, /tasks = active, /cronJobs = cron, /quit = exit.
+warden>
+```
+
+If you see this prompt, installation succeeded! Press `Ctrl+C` to exit.
+
+</Steps>
+
+## 24/7 Operation with pm2
+
+For production deployments, use pm2 to run Warden as a background service with automatic restarts.
+
+<Steps>
+
+### Install pm2
+
+Install pm2 globally:
+
+```bash
+npm install -g pm2
+```
+
+Verify installation:
+
+```bash
+pm2 --version
+```
+
+### Build for Production
+
+Compile TypeScript to JavaScript:
+
+```bash
+npm run build
+```
+
+This creates `dist/` directory with compiled output.
+
+### Start Warden Service
+
+Launch Warden with pm2:
+
+```bash
+pm2 start dist/index.js --name warden
+```
+
+Expected output:
+
+```plaintext
+┌─────┬──────────┬─────────┬─────────┬─────────┬──────────┐
+│ id  │ name     │ mode    │ ↺       │ status  │ cpu      │
+├─────┼──────────┼─────────┼─────────┼─────────┼──────────┤
+│ 0   │ warden   │ fork    │ 0       │ online  │ 0%       │
+└─────┴──────────┴─────────┴─────────┴─────────┴──────────┘
+```
+
+### View Logs
+
+Monitor real-time logs:
+
+```bash
+pm2 logs warden
+```
+
+View last 100 lines:
+
+```bash
+pm2 logs warden --lines 100
+```
+
+<Note>
+pm2 stores logs in `~/.pm2/logs/`. Find them at:
+- Standard output: `~/.pm2/logs/warden-out.log`
+- Error output: `~/.pm2/logs/warden-error.log`
+</Note>
+
+### Save Process List
+
+Save current pm2 processes for auto-resurrection after reboots:
+
+```bash
+pm2 save
+```
+
+### Enable Boot Startup
+
+Generate startup script:
+
+```bash
+pm2 startup
+```
+
+This outputs a command like:
+
+```bash
+sudo env PATH=$PATH:/usr/bin /usr/lib/node_modules/pm2/bin/pm2 startup launchd -u username --hp /Users/username
+```
+
+**Copy and run that command** to enable pm2 startup on boot.
+
+</Steps>
+
+## Managing the Service
+
+### Restart After Code Changes
+
+After updating code:
+
+```bash
+npm run build && pm2 restart warden
+```
+
+### Reload Environment Variables
+
+After editing `.env`:
+
+```bash
+pm2 restart warden --update-env
+```
+
+### Monitor Status
+
+Check service status:
+
+```bash
+pm2 status
+```
+
+View detailed info:
+
+```bash
+pm2 info warden
+```
+
+### Stop Service
+
+Stop Warden temporarily:
+
+```bash
+pm2 stop warden
+```
+
+Restart:
+
+```bash
+pm2 restart warden
+```
+
+### Remove Service
+
+Completely remove from pm2:
+
+```bash
+pm2 delete warden
+pm2 save --force
+```
+
+Disable boot startup:
+
+```bash
+pm2 unstartup launchd
+```
+
+Run the `sudo` command it prints to complete removal.
+
+## Optional: Telegram Integration
+
+Enable task submission via Telegram for remote access.
+
+<Steps>
+
+### Create Telegram Bot
+
+1. Open Telegram and message [@BotFather](https://t.me/botfather)
+2. Send `/newbot`
+3. Follow prompts to choose a name and username
+4. Copy the bot token (format: `123456789:ABCdefGHI...`)
+
+### Add Token to Environment
+
+Edit `.env`:
+
+```bash
+TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+```
+
+Restart Warden:
+
+```bash
+npm run build && pm2 restart warden --update-env
+```
+
+### Verify Telegram Bot
+
+Check logs:
+
+```bash
+pm2 logs warden --lines 20
+```
+
+Look for:
+
+```plaintext
+Telegram bot started (@your_bot_username)
+```
+
+Send a message to your bot in Telegram:
+
+```plaintext
+List all files in the current directory
+```
+
+Warden will reply with the task result.
+
+</Steps>
+
+## Optional: WordPress Publishing
+
+Enable remote WordPress post management via wp-cli over SSH.
+
+### Prerequisites
+
+- WordPress site with SSH access
+- wp-cli installed on remote server
+- SSH key authentication configured
+
+### Install wp-cli Locally
+
+<CodeGroup>
+
+```bash Homebrew (macOS)
+brew install wp-cli
+```
+
+```bash Manual Install
+curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+chmod +x wp-cli.phar
+sudo mv wp-cli.phar /usr/local/bin/wp
+```
+
+</CodeGroup>
+
+Verify:
+
+```bash
+wp --version
+```
+
+### Configure SSH Connection
+
+Edit `.env`:
+
+```bash
+WP_SSH=user@ssh.wp.com
+```
+
+Format: `user@host` or `user@host/path/to/wordpress`
+
+Test connection:
+
+```bash
+wp post list --ssh="$WP_SSH"
+```
+
+If successful, Warden can now publish posts remotely.
+
+## Troubleshooting
+
+### Build Fails with Type Errors
+
+**Symptom:** `npm run build` shows TypeScript errors.
+
+**Solution:**
+- Run `npm install` to ensure dependencies are up to date
+- Check TypeScript version: `npx tsc --version` (should be 5.5+)
+- Clear node_modules and reinstall: `rm -rf node_modules package-lock.json && npm install`
+
+### pm2 Doesn't Start on Boot
+
+**Symptom:** Warden not running after reboot.
+
+**Solution:**
+1. Run `pm2 startup` again
+2. Copy and execute the `sudo` command it outputs
+3. Verify: `pm2 save`
+4. Reboot and check: `pm2 status`
+
+### Supabase Connection Fails
+
+**Symptom:** "Failed to connect to Supabase" error.
+
+**Solution:**
+- Verify `SUPABASE_URL` format: `https://PROJECT.supabase.co` (no trailing slash)
+- Check `SUPABASE_ANON_KEY` is the **anon public key**, not service role
+- Test in browser: visit `SUPABASE_URL` to verify project is active
+- Ensure Supabase project is not paused (free tier pauses after inactivity)
+
+### Telegram Bot Not Responding
+
+**Symptom:** Bot receives messages but doesn't reply.
+
+**Solution:**
+- Check `TELEGRAM_BOT_TOKEN` format: `123456789:ABC...`
+- Verify logs: `pm2 logs warden --lines 50`
+- Ensure bot is started: look for "Telegram bot started" in logs
+- Test bot independently: `curl https://api.telegram.org/bot<TOKEN>/getMe`
+
+### High Memory Usage
+
+**Symptom:** pm2 shows warden using excessive memory.
+
+**Solution:**
+- Check for leaked sessions: monitor `~/.warden/sessions/` directory size
+- Clear old sessions: `rm -rf ~/.warden/sessions/*` (loses conversation history)
+- Restart service: `pm2 restart warden`
+- Consider session expiry policies (future enhancement)
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+  Execute your first task and understand the workflow
+</Card>
+
+<Card title="REPL Commands" icon="terminal" href="/commands/repl/modes">
+  Learn all interactive commands for monitoring and debugging
+</Card>
+
+<Card title="HTTP API Reference" icon="code" href="/interfaces/http-api">
+  Submit tasks programmatically via REST endpoints
+</Card>
+
+<Card title="Cron Jobs" icon="clock" href="/concepts/cron-scheduling">
+  Schedule recurring tasks with cron expressions
+</Card>
+
+</CardGroup>
+
+## Production Deployment Checklist
+
+Before deploying to production:
+
+- [ ] Supabase project in paid tier (no auto-pause)
+- [ ] Database backups enabled in Supabase
+- [ ] `.env` contains production credentials (not development)
+- [ ] API keys stored in secret manager (not plaintext)
+- [ ] pm2 startup script configured and tested
+- [ ] Log rotation configured: `pm2 install pm2-logrotate`
+- [ ] Monitoring/alerting set up (pm2 Plus, Datadog, etc.)
+- [ ] Firewall rules configured (if exposing HTTP API)
+- [ ] SSL/TLS for HTTP API (if external access needed)
+- [ ] Test disaster recovery: stop service, reboot, verify auto-restart
+
+<Warning>
+**Security Reminder:** Warden executes arbitrary shell commands via the `bash` tool. Run only in trusted environments. Never expose the HTTP API publicly without authentication.
+</Warning>

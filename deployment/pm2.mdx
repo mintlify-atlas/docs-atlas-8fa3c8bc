@@ -1,0 +1,251 @@
+---
+title: 'Running 24/7 with PM2'
+description: 'Deploy Warden as a persistent background service using PM2 process manager'
+---
+
+## Overview
+
+PM2 is a production-grade process manager that keeps Warden running 24/7, automatically restarts it on crashes, and ensures it starts on system boot. This is the recommended deployment method for running Warden continuously on a server or Mac Mini.
+
+## Prerequisites
+
+- Node.js installed (v18 or later)
+- PM2 installed globally: `npm install -g pm2`
+- Warden project with `.env` configured
+- Database migrations applied to Supabase
+
+## Starting Warden
+
+<Steps>
+  <Step title="Build the TypeScript">
+    Compile the source code to JavaScript:
+
+    ```bash
+    npm run build
+    ```
+
+    This creates the `dist/` directory with compiled code.
+  </Step>
+
+  <Step title="Start with PM2">
+    Launch Warden as a PM2-managed process:
+
+    ```bash
+    pm2 start dist/index.js --name warden
+    ```
+
+    The `--name warden` flag assigns a friendly name for process management.
+  </Step>
+
+  <Step title="Save the process list">
+    Persist the process configuration:
+
+    ```bash
+    pm2 save
+    ```
+
+    This saves the current PM2 process list so Warden can be restored after system restarts.
+  </Step>
+
+  <Step title="Enable auto-start on boot">
+    Generate the startup script for your OS:
+
+    ```bash
+    pm2 startup
+    ```
+
+    PM2 will print a command (usually starting with `sudo`) that you need to copy and run. This command installs a system service (launchd on macOS, systemd on Linux) that starts PM2 on boot.
+
+    Example output:
+    ```
+    [PM2] To setup the Startup Script, copy/paste the following command:
+    sudo env PATH=$PATH:/usr/local/bin pm2 startup launchd -u yourusername --hp /Users/yourusername
+    ```
+
+    Copy and run that command.
+  </Step>
+</Steps>
+
+<Tip>
+Warden will now run continuously in the background, restart automatically if it crashes, and start on system boot.
+</Tip>
+
+## Managing the Process
+
+### View status
+
+Check if Warden is running:
+
+```bash
+pm2 status
+```
+
+### View logs
+
+Stream real-time logs:
+
+```bash
+pm2 logs warden
+```
+
+View only error logs:
+
+```bash
+pm2 logs warden --err
+```
+
+### Monitor resources
+
+Open an interactive dashboard:
+
+```bash
+pm2 monit
+```
+
+Shows CPU, memory, and log output in real-time.
+
+## Updating Warden
+
+When you make code changes or update environment variables:
+
+### Rebuild and restart
+
+After code changes:
+
+```bash
+npm run build && pm2 restart warden
+```
+
+This compiles TypeScript and restarts the process without downtime.
+
+### Restart with new environment variables
+
+After editing `.env`:
+
+```bash
+pm2 restart warden --update-env
+```
+
+This reloads environment variables from `.env` without rebuilding.
+
+<Warning>
+PM2 caches environment variables by default. Always use `--update-env` when you modify `.env` to ensure changes take effect.
+</Warning>
+
+## Stopping Warden
+
+### Temporary stop
+
+Stop without removing from PM2:
+
+```bash
+pm2 stop warden
+```
+
+Restart with:
+
+```bash
+pm2 start warden
+```
+
+### Complete removal
+
+Stop and remove from PM2 entirely:
+
+<Steps>
+  <Step title="Delete the process">
+    ```bash
+    pm2 delete warden
+    ```
+  </Step>
+
+  <Step title="Save the updated process list">
+    ```bash
+    pm2 save --force
+    ```
+
+    This removes Warden from the saved process list.
+  </Step>
+
+  <Step title="Remove boot startup script (optional)">
+    If you want to prevent PM2 from starting on boot:
+
+    ```bash
+    pm2 unstartup launchd
+    ```
+
+    On Linux, use `pm2 unstartup systemd` instead.
+
+    Follow the `sudo` command it prints.
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+### Process keeps restarting
+
+Check error logs:
+
+```bash
+pm2 logs warden --err --lines 100
+```
+
+Common issues:
+- Missing environment variables in `.env`
+- Database connection failure (check `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`)
+- Port 3100 already in use
+
+### Changes not taking effect
+
+Ensure you rebuilt and restarted:
+
+```bash
+npm run build && pm2 restart warden --update-env
+```
+
+### Process not starting on boot
+
+Verify startup script is installed:
+
+```bash
+pm2 startup
+```
+
+If it shows a `sudo` command, run it. Then:
+
+```bash
+pm2 save
+```
+
+## Advanced Configuration
+
+### Run with CLI flags
+
+Warden supports `--provider` and `--model` flags. Pass them through PM2:
+
+```bash
+pm2 start dist/index.js --name warden -- --provider anthropic --model claude-4.5-sonnet
+```
+
+Note the `--` separator before Warden's flags.
+
+### Multiple instances
+
+Run multiple Warden processes (not recommended unless you have multiple task queues):
+
+```bash
+pm2 start dist/index.js --name warden-1
+pm2 start dist/index.js --name warden-2
+```
+
+Each instance polls the same Supabase task queue.
+
+<Warning>
+Running multiple Warden instances against the same database is safe (tasks are claimed atomically), but typically unnecessary. Use this only for high-volume production deployments.
+</Warning>
+
+## Next Steps
+
+- [Development Workflow](/deployment/development) - Learn about local development
+- [Environment Variables](/configuration/environment) - Configure Warden settings
+- [Task Queue](/architecture/task-queue) - Understand how tasks are processed

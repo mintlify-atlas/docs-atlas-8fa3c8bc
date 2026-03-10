@@ -1,0 +1,334 @@
+---
+title: 'HTTP API'
+description: 'Programmatic task submission via REST endpoints'
+---
+
+<Note>
+**Status:** Not yet implemented. This page documents the planned HTTP API for Warden. Currently, you can submit tasks via:
+- [REPL Interface](/interfaces/repl) (local terminal)
+- [Telegram Interface](/interfaces/telegram) (remote messaging)
+- Direct Supabase inserts (see below)
+</Note>
+
+## Planned Endpoints
+
+The HTTP API will provide a REST interface for programmatic task submission, status queries, and cron job management.
+
+### Task Management
+
+<CodeGroup>
+```bash POST /api/task
+# Submit a new task
+curl -X POST http://localhost:3100/api/task \
+  -H "Content-Type: application/json" \
+  -d '{
+    "instruction": "Check disk space and send alert if above 80%",
+    "metadata": {
+      "source": "monitoring-script",
+      "priority": "high"
+    }
+  }'
+
+# Response:
+{
+  "id": "a3f8c2b4-5e7f-4a2b-9c1d-3e8f2a9b7c1d",
+  "status": "pending",
+  "created_at": "2026-03-10T15:23:45.123Z"
+}
+```
+
+```bash GET /api/task/:id
+# Get task status and result
+curl http://localhost:3100/api/task/a3f8c2b4-5e7f-4a2b-9c1d-3e8f2a9b7c1d
+
+# Response:
+{
+  "id": "a3f8c2b4-5e7f-4a2b-9c1d-3e8f2a9b7c1d",
+  "instruction": "Check disk space and send alert if above 80%",
+  "status": "done",
+  "result": "Disk usage: 42%. No alert needed.",
+  "error": null,
+  "metadata": { "source": "monitoring-script", "priority": "high" },
+  "created_at": "2026-03-10T15:23:45.123Z",
+  "started_at": "2026-03-10T15:23:47.456Z",
+  "completed_at": "2026-03-10T15:24:12.789Z"
+}
+```
+
+```bash GET /api/tasks
+# List tasks with optional filters
+curl "http://localhost:3100/api/tasks?status=running&limit=10"
+
+# Response:
+{
+  "tasks": [
+    {
+      "id": "b7e9d1a2-...",
+      "instruction": "Update npm dependencies",
+      "status": "running",
+      "created_at": "2026-03-10T15:25:00.000Z"
+    }
+  ],
+  "count": 1
+}
+```
+</CodeGroup>
+
+### Cron Job Management
+
+<CodeGroup>
+```bash POST /api/cron
+# Create a scheduled job
+curl -X POST http://localhost:3100/api/cron \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "daily-backup",
+    "schedule_type": "cron",
+    "cron_expression": "0 2 * * *",
+    "cron_timezone": "America/Los_Angeles",
+    "instruction": "Backup database to S3",
+    "task_metadata": { "priority": "high" }
+  }'
+
+# Response:
+{
+  "id": "d4a9f2b1-...",
+  "name": "daily-backup",
+  "enabled": true,
+  "next_run_at": "2026-03-11T02:00:00.000Z"
+}
+```
+
+```bash GET /api/cron
+# List all cron jobs
+curl http://localhost:3100/api/cron
+
+# Response:
+{
+  "jobs": [
+    {
+      "id": "d4a9f2b1-...",
+      "name": "daily-backup",
+      "enabled": true,
+      "schedule_type": "cron",
+      "cron_expression": "0 2 * * *",
+      "next_run_at": "2026-03-11T02:00:00.000Z",
+      "run_count": 42
+    }
+  ]
+}
+```
+
+```bash DELETE /api/cron/:id
+# Delete a cron job
+curl -X DELETE http://localhost:3100/api/cron/d4a9f2b1-...
+
+# Response:
+{ "success": true }
+```
+</CodeGroup>
+
+### Health Check
+
+```bash
+curl http://localhost:3100/health
+
+# Response:
+{
+  "status": "ok",
+  "uptime": 86400,
+  "version": "1.0.0",
+  "runner": "active",
+  "telegram": "connected"
+}
+```
+
+## Configuration
+
+Set the port via environment variable:
+
+```bash .env
+WARDEN_PORT=3100
+```
+
+Default: `3100`
+
+## Current Workaround: Direct Supabase Access
+
+Until the HTTP API is implemented, you can submit tasks programmatically via the Supabase client:
+
+<CodeGroup>
+```typescript TypeScript
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_ANON_KEY!
+);
+
+// Submit a task
+const { data: task, error } = await supabase
+  .from('warden_tasks')
+  .insert({
+    instruction: 'Check disk space and send alert if above 80%',
+    metadata: { source: 'monitoring-script', priority: 'high' }
+  })
+  .select()
+  .single();
+
+if (error) throw error;
+console.log('Task queued:', task.id);
+
+// Poll for completion
+while (true) {
+  const { data: updated } = await supabase
+    .from('warden_tasks')
+    .select('status, result, error')
+    .eq('id', task.id)
+    .single();
+  
+  if (updated.status === 'done') {
+    console.log('Result:', updated.result);
+    break;
+  } else if (updated.status === 'failed') {
+    console.error('Error:', updated.error);
+    break;
+  }
+  
+  await new Promise(resolve => setTimeout(resolve, 2000));
+}
+```
+
+```python Python
+import os
+import time
+from supabase import create_client
+
+supabase = create_client(
+    os.environ['SUPABASE_URL'],
+    os.environ['SUPABASE_ANON_KEY']
+)
+
+# Submit a task
+response = supabase.table('warden_tasks').insert({
+    'instruction': 'Check disk space and send alert if above 80%',
+    'metadata': {'source': 'monitoring-script', 'priority': 'high'}
+}).execute()
+
+task_id = response.data[0]['id']
+print(f'Task queued: {task_id}')
+
+# Poll for completion
+while True:
+    response = supabase.table('warden_tasks') \
+        .select('status, result, error') \
+        .eq('id', task_id) \
+        .single() \
+        .execute()
+    
+    task = response.data
+    if task['status'] == 'done':
+        print(f"Result: {task['result']}")
+        break
+    elif task['status'] == 'failed':
+        print(f"Error: {task['error']}")
+        break
+    
+    time.sleep(2)
+```
+
+```bash cURL + jq
+#!/bin/bash
+# Submit task via Supabase REST API
+
+SUPABASE_URL="https://your-project.supabase.co"
+SUPABASE_KEY="your-anon-key"
+
+TASK=$(curl -X POST "$SUPABASE_URL/rest/v1/warden_tasks" \
+  -H "apikey: $SUPABASE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Prefer: return=representation" \
+  -d '{
+    "instruction": "Check disk space and send alert if above 80%",
+    "metadata": {"source": "monitoring-script", "priority": "high"}
+  }')
+
+TASK_ID=$(echo "$TASK" | jq -r '.[0].id')
+echo "Task queued: $TASK_ID"
+
+# Poll for completion
+while true; do
+  STATUS=$(curl -s "$SUPABASE_URL/rest/v1/warden_tasks?id=eq.$TASK_ID&select=status,result,error" \
+    -H "apikey: $SUPABASE_KEY" \
+    -H "Authorization: Bearer $SUPABASE_KEY" | jq -r '.[0]')
+  
+  STATE=$(echo "$STATUS" | jq -r '.status')
+  
+  if [ "$STATE" = "done" ]; then
+    echo "Result: $(echo "$STATUS" | jq -r '.result')"
+    break
+  elif [ "$STATE" = "failed" ]; then
+    echo "Error: $(echo "$STATUS" | jq -r '.error')"
+    break
+  fi
+  
+  sleep 2
+done
+```
+</CodeGroup>
+
+<Tip>
+This approach works for any language with a Supabase client. The task lifecycle is identical to using the REPL or Telegram interfaces.
+</Tip>
+
+## Planned Implementation
+
+When implemented, the HTTP server will follow this architecture (similar to the original design mentioned in `README.md`):
+
+```typescript
+// src/server.ts (planned)
+import { createServer } from 'node:http';
+import { insertTask, getTask, listActiveTasks } from './data_model/index.js';
+
+const PORT = parseInt(process.env.WARDEN_PORT || '3100', 10);
+
+const server = createServer(async (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  
+  if (req.method === 'POST' && req.url === '/api/task') {
+    const body = await readBody(req);
+    const task = await insertTask(body);
+    res.writeHead(201);
+    res.end(JSON.stringify(task));
+  }
+  else if (req.method === 'GET' && req.url === '/health') {
+    res.writeHead(200);
+    res.end(JSON.stringify({ status: 'ok' }));
+  }
+  else {
+    res.writeHead(404);
+    res.end(JSON.stringify({ error: 'Not found' }));
+  }
+});
+
+export function startServer() {
+  server.listen(PORT, () => {
+    console.log(`[http] Listening on http://localhost:${PORT}`);
+  });
+}
+
+export function stopServer() {
+  server.close();
+}
+```
+
+<Note>
+Interested in contributing the HTTP API implementation? Check the [GitHub repository](https://github.com/mariozechner/warden) for contribution guidelines.
+</Note>
+
+## Related Documentation
+
+- See [REPL Interface](/interfaces/repl) for local task management
+- See [Telegram Interface](/interfaces/telegram) for remote messaging
+- See [Data Model](/architecture/data-model) for database schema details

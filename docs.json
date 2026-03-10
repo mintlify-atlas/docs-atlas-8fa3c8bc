@@ -1,122 +1,149 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Warden",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#6366f1",
+    "light": "#818cf8",
+    "dark": "#4f46e5"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/Jfeng3/Warden"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/Jfeng3/Warden"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "installation"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/architecture",
+              "concepts/task-lifecycle",
+              "concepts/session-persistence",
+              "concepts/cron-scheduling"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Interfaces",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "interfaces/repl",
+              "interfaces/telegram",
+              "interfaces/http-api"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Configuration",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "configuration/environment",
+              "configuration/models",
+              "configuration/database"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/pm2",
+              "deployment/development"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "Skills & Tools",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Built-in Tools",
             "pages": [
-              "api-reference/introduction"
+              "tools/bash",
+              "tools/file-operations",
+              "tools/wordpress"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Skills System",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "skills/overview",
+              "skills/content-writing",
+              "skills/seo-audit",
+              "skills/publishing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Command Reference",
+        "groups": [
+          {
+            "group": "CLI Commands",
+            "pages": [
+              "commands/dev",
+              "commands/build",
+              "commands/cron-cli"
+            ]
+          },
+          {
+            "group": "Telegram Commands",
+            "pages": [
+              "commands/telegram/new",
+              "commands/telegram/tasks",
+              "commands/telegram/history",
+              "commands/telegram/cron"
+            ]
+          },
+          {
+            "group": "REPL Commands",
+            "pages": [
+              "commands/repl/modes",
+              "commands/repl/session-management"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Advanced",
+        "groups": [
+          {
+            "group": "Automation",
+            "pages": [
+              "advanced/content-pipeline",
+              "advanced/cron-patterns",
+              "advanced/metadata-routing"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "advanced/testing",
+              "advanced/debugging",
+              "advanced/custom-skills"
+            ]
+          },
+          {
+            "group": "Troubleshooting",
+            "pages": [
+              "troubleshooting/common-issues",
+              "troubleshooting/logs"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

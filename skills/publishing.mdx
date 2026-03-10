@@ -1,0 +1,474 @@
+---
+title: 'Publishing Skill'
+description: 'WordPress management via wp-cli over SSH'
+icon: 'upload'
+---
+
+## Overview
+
+The `publish` skill provides wp-cli command reference for managing blog posts on **openclaws.blog**. All WordPress operations happen over SSH using the `wp` command.
+
+**Skill file**: `~/workspace/source/skills/publish.md`
+
+**Trigger**: When publishing, updating, or managing blog posts on openclaws.blog via wp-cli
+
+## Prerequisites
+
+### Environment Variable
+
+All wp-cli commands require the `WP_SSH` environment variable:
+
+```bash
+# Check if WP_SSH is set
+echo $WP_SSH
+
+# Expected format: user@host (e.g., user@ssh.wp.com)
+```
+
+Before running wp commands, verify it's configured:
+
+```bash
+[ -z "$WP_SSH" ] && echo "WP_SSH not configured" && exit 1
+```
+
+### wp-cli Installation
+
+wp-cli is installed at `/opt/homebrew/bin/wp` (Homebrew on macOS).
+
+<Note>
+**WordPress.com limitation**: Some wp-cli commands (like `wp theme`, `wp plugin`) do NOT work on WordPress.com SSH. The following DO work: `wp post`, `wp option update`, `wp media`.
+</Note>
+
+## Basic Commands
+
+### Create and Publish a Post
+
+```bash
+# Create and publish immediately
+wp post create \
+  --post_title="My Post Title" \
+  --post_content="<p>Post content in HTML...</p>" \
+  --post_status=publish \
+  --porcelain \
+  --ssh="$WP_SSH"
+
+# Returns: 123 (the new post ID)
+```
+
+**Options**:
+- `--porcelain` — Returns just the post ID (useful for scripting)
+- `--post_status` — `draft`, `publish`, `future`, `pending`, `private`
+
+### Create a Draft
+
+```bash
+wp post create \
+  --post_title="Draft Post" \
+  --post_content="Work in progress..." \
+  --post_status=draft \
+  --ssh="$WP_SSH"
+```
+
+### Schedule a Future Post
+
+```bash
+# Schedule for future publish (uses WordPress site timezone, not UTC)
+wp post create \
+  --post_title="Scheduled Post" \
+  --post_content="Publishes later" \
+  --post_status=future \
+  --post_date="2026-04-01 08:00:00" \
+  --porcelain \
+  --ssh="$WP_SSH"
+```
+
+<Warning>
+**Timezone note**: `--post_date` uses the WordPress site timezone (set in WordPress admin), NOT UTC. If the site is set to America/Los_Angeles, "08:00:00" means 8am PT.
+</Warning>
+
+### Create Post from File
+
+For long content, write HTML to a file first to avoid shell escaping issues:
+
+```bash
+# Write content to temp file
+cat > /tmp/post-content.html <<'EOF'
+<h2>Section 1</h2>
+<p>Content here...</p>
+
+<h2>Section 2</h2>
+<p>More content...</p>
+EOF
+
+# Create post from file
+wp post create /tmp/post-content.html \
+  --post_title="From File" \
+  --post_status=publish \
+  --ssh="$WP_SSH"
+```
+
+<Note>
+This is the **recommended approach** for blog posts. Write HTML to a temp file, then pass the file path to `wp post create`. Avoids quoting/escaping nightmares.
+</Note>
+
+## Managing Posts
+
+### List Posts
+
+```bash
+# List published posts
+wp post list \
+  --post_status=publish \
+  --fields=ID,post_title,post_date,post_status \
+  --ssh="$WP_SSH"
+
+# List drafts
+wp post list \
+  --post_status=draft \
+  --ssh="$WP_SSH"
+
+# List all posts (any status)
+wp post list \
+  --fields=ID,post_title,post_status \
+  --ssh="$WP_SSH"
+```
+
+### Update an Existing Post
+
+```bash
+# Update title
+wp post update 123 \
+  --post_title="New Title" \
+  --ssh="$WP_SSH"
+
+# Update content
+wp post update 123 \
+  --post_content="<p>Updated content...</p>" \
+  --ssh="$WP_SSH"
+
+# Publish a draft
+wp post update 123 \
+  --post_status=publish \
+  --ssh="$WP_SSH"
+```
+
+### Get Post Content
+
+```bash
+# Get full content
+wp post get 123 --field=post_content --ssh="$WP_SSH"
+
+# Get multiple fields
+wp post get 123 --fields=post_title,post_name,post_status --ssh="$WP_SSH"
+```
+
+### Delete Posts
+
+```bash
+# Move to trash
+wp post delete 123 --ssh="$WP_SSH"
+
+# Permanently delete (skip trash)
+wp post delete 123 --force --ssh="$WP_SSH"
+```
+
+## Categories and Tags
+
+### Language Categories
+
+openclaws.blog uses categories to separate English and Chinese content:
+
+| Category | ID | Slug | Purpose |
+|----------|-----|------|--------|
+| English | 1362 | `english` | All English posts |
+| Chinese | 1361 | `chinese` | All Chinese (`zh-`) posts |
+
+**When publishing a new English post**, always assign the `english` category:
+
+```bash
+# Add english category to a post
+wp post term add 123 category english --ssh="$WP_SSH"
+```
+
+**When publishing a Chinese translation**, always assign the `chinese` category:
+
+```bash
+# Add chinese category to a post
+wp post term add 123 category chinese --ssh="$WP_SSH"
+```
+
+<Note>
+The `/blog/` page uses a Query Loop block filtered to category 1362 (English only).
+
+The `/zh-blog/` page uses a Query Loop block filtered to category 1361 (Chinese only).
+</Note>
+
+### Add Categories and Tags on Create
+
+```bash
+wp post create \
+  --post_title="Tagged Post" \
+  --post_content="..." \
+  --post_status=publish \
+  --post_category=1,2 \
+  --tags_input="tech,tutorial" \
+  --ssh="$WP_SSH"
+```
+
+### Add Category to Existing Post
+
+```bash
+wp post term add 123 category <slug> --ssh="$WP_SSH"
+
+# Example: add "tutorials" category
+wp post term add 123 category tutorials --ssh="$WP_SSH"
+```
+
+## Media Management
+
+### Add Featured Image
+
+```bash
+# Upload image and set as featured image for post
+wp media import ./image.jpg \
+  --post_id=123 \
+  --featured_image \
+  --ssh="$WP_SSH"
+```
+
+### Upload Media
+
+```bash
+# Upload image (not attached to any post)
+wp media import ./diagram.png --ssh="$WP_SSH"
+
+# Returns: Imported file 'diagram.png' as attachment ID 456
+```
+
+## Pages (Homepage, About, etc.)
+
+Pages are just posts with a different type. Use the same `wp post update` command.
+
+### Known Page IDs
+
+| Page ID | Page | Purpose |
+|---------|------|--------|
+| 37 | Home | Homepage content, hero, value propositions |
+| 1 | About | About page |
+| 38 | Blog | Blog listing page (Query Loop filtered to English category) |
+| 64 | zh-home | Chinese homepage |
+| 65 | zh-about | Chinese about page |
+| 81 | zh-blog | Chinese blog listing (Query Loop filtered to Chinese category) |
+
+### Update Homepage
+
+```bash
+# Update homepage content
+wp post update 37 \
+  --post_content="$(cat /tmp/homepage.html)" \
+  --ssh="$WP_SSH"
+```
+
+### Update About Page
+
+```bash
+wp post update 1 \
+  --post_content="$(cat /tmp/about.html)" \
+  --ssh="$WP_SSH"
+```
+
+### List All Pages
+
+```bash
+wp post list \
+  --post_type=page \
+  --fields=ID,post_title,post_status \
+  --ssh="$WP_SSH"
+```
+
+## Site Settings
+
+### Update Site Tagline
+
+```bash
+wp option update blogdescription "AI automation guides for business owners and IT leaders" --ssh="$WP_SSH"
+```
+
+### Update Site Title
+
+```bash
+wp option update blogname "OpenClaws" --ssh="$WP_SSH"
+```
+
+<Note>
+`wp option update` works on WordPress.com SSH for core options like `blogname` and `blogdescription`.
+</Note>
+
+## Post Statuses
+
+| Status | Description |
+|--------|-------------|
+| `draft` | Draft (default) — not visible to public |
+| `publish` | Published — live on site |
+| `future` | Scheduled — publishes automatically at `--post_date` |
+| `pending` | Pending review — awaiting approval |
+| `private` | Private — visible only to admins |
+
+## Tips & Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Temp Files for Long Content" icon="file">
+    For blog posts (2,000-3,000 words), write HTML to a temp file first:
+    
+    ```bash
+    # Write to temp file
+    cat > /tmp/post.html <<'EOF'
+    <h2>Heading</h2>
+    <p>Content...</p>
+    EOF
+    
+    # Create post from file
+    wp post create /tmp/post.html --post_title="..." --post_status=publish --ssh="$WP_SSH"
+    ```
+    
+    This avoids shell escaping issues with quotes and special characters.
+  </Accordion>
+  
+  <Accordion title="Use --porcelain for Scripting" icon="code">
+    `--porcelain` returns just the post ID, making it easy to capture in scripts:
+    
+    ```bash
+    POST_ID=$(wp post create /tmp/post.html --post_title="..." --post_status=publish --porcelain --ssh="$WP_SSH")
+    echo "Created post ID: $POST_ID"
+    
+    # Now add category
+    wp post term add $POST_ID category english --ssh="$WP_SSH"
+    ```
+  </Accordion>
+  
+  <Accordion title="Verify Live After Publishing" icon="eye">
+    Always check the live URL after publishing:
+    
+    ```bash
+    # Get the post slug
+    SLUG=$(wp post get $POST_ID --field=post_name --ssh="$WP_SSH")
+    echo "Live at: https://openclaws.blog/$SLUG"
+    ```
+    
+    Visit the URL to confirm it renders correctly.
+  </Accordion>
+  
+  <Accordion title="Always Assign Language Category" icon="language">
+    **English posts**: Always add the `english` category (ID 1362)
+    
+    **Chinese posts**: Always add the `chinese` category (ID 1361)
+    
+    This ensures posts appear on the correct blog listing page.
+  </Accordion>
+</AccordionGroup>
+
+## Post-Publish Checklist
+
+After publishing a post:
+
+<Steps>
+  <Step title="Verify Live">
+    Visit the post URL and confirm it renders correctly. Check:
+    - Title displays
+    - Content formatted properly
+    - Images load
+    - Internal links work
+  </Step>
+  
+  <Step title="Share to Social">
+    Use the `social-distribution` skill to draft social posts for Reddit, X, and HN.
+    
+    ```bash
+    "Use the social-distribution skill to create Reddit and Twitter posts for the latest blog post."
+    ```
+  </Step>
+  
+  <Step title="Update Internal Links">
+    Check 2-3 related existing posts and add a link to the new post. This improves internal linking and helps the new post get discovered.
+  </Step>
+  
+  <Step title="Update Content Calendar">
+    Mark the topic as published in the editorial calendar (`content/calendar.md`).
+  </Step>
+</Steps>
+
+## Workflow Example
+
+Here's a complete workflow from draft to published:
+
+```bash
+# 1. Write post content to temp file (using content-style skill)
+cat > /tmp/new-post.html <<'EOF'
+<h2>Key Takeaways</h2>
+<ul>
+<li>Takeaway 1</li>
+<li>Takeaway 2</li>
+</ul>
+
+<h2>The Problem</h2>
+<p>Problem description...</p>
+
+<h2>The Solution</h2>
+<p>Solution description...</p>
+
+<h2>FAQ</h2>
+<h3>Q: How does this work?</h3>
+<p>A: Answer here...</p>
+EOF
+
+# 2. Create and publish post
+POST_ID=$(wp post create /tmp/new-post.html \
+  --post_title="Why Your Laptop Is Killing Your AI Automation" \
+  --post_status=publish \
+  --porcelain \
+  --ssh="$WP_SSH")
+
+echo "Created post ID: $POST_ID"
+
+# 3. Add english category
+wp post term add $POST_ID category english --ssh="$WP_SSH"
+
+# 4. Get live URL
+SLUG=$(wp post get $POST_ID --field=post_name --ssh="$WP_SSH")
+echo "Live at: https://openclaws.blog/$SLUG"
+
+# 5. Verify
+echo "Visit the URL to confirm it looks correct."
+```
+
+## Loading the Skill
+
+Warden loads this skill when publishing. You can also load it explicitly:
+
+```bash
+# In a task instruction
+"Publish this post to WordPress using the publish skill."
+```
+
+## Related Skills
+
+<CardGroup cols={2}>
+  <Card title="Content Writing" icon="pen" href="/skills/content-writing">
+    Write the blog post (run before publishing)
+  </Card>
+  <Card title="SEO Audit" icon="chart-line" href="/skills/seo-audit">
+    Audit SEO before publishing
+  </Card>
+  <Card title="Social Distribution" icon="share-nodes">
+    Share the published post on social media
+  </Card>
+  <Card title="Content Calendar" icon="calendar">
+    Track published posts in the editorial calendar
+  </Card>
+</CardGroup>
+
+## Source Code Reference
+
+- **Skill file**: `~/workspace/source/skills/publish.md`
+- **Skill loader**: `~/workspace/source/src/skill-tool.ts:103-137`
+- **Environment setup**: See `~/workspace/source/.env.example` for `WP_SSH` configuration

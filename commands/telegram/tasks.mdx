@@ -1,0 +1,87 @@
+---
+title: '/tasks'
+description: 'List all active tasks currently running or queued'
+---
+
+## Overview
+
+The `/tasks` command displays all active tasks in the Warden queue, showing tasks with status `pending` or `running`. This gives you a quick overview of what the agent is currently working on.
+
+## Usage
+
+```bash
+/tasks
+```
+
+## Output Format
+
+Each task is displayed on one line with the following information:
+
+```
+<task-id>  <status>  <age>  <instruction>
+```
+
+- **task-id** — First 8 characters of the task UUID
+- **status** — Current status: `pending`, `running`, `done`, or `failed`
+- **age** — How long ago the task was created (e.g., `5m`, `2h`, `30s`)
+- **instruction** — First 50 characters of the task instruction (truncated with `...`)
+
+## Example Output
+
+```
+You: /tasks
+Warden:
+a1b2c3d4  running  5m  Help me debug the login endpoint issue...
+e5f6g7h8  pending  2m  Update the documentation for the API...
+i9j0k1l2  pending  1m  Review and merge the latest pull request
+```
+
+<Note>
+If there are no active tasks, you'll see: "No active tasks."
+</Note>
+
+## Related Commands
+
+- [`/history`](/commands/telegram/history) — View recent completed tasks (all statuses)
+- `/task <id>` — Get detailed information about a specific task, including tool invocations
+- `/activeTask` — Show only the currently running task with full details
+
+## Use Cases
+
+- Check if your task is still queued or actively running
+- Monitor multiple tasks you've submitted
+- Get task IDs to inspect specific tasks with `/task <id>`
+- See how busy Warden is before submitting new work
+
+<Tip>
+Task IDs are shortened to 8 characters in the list view. You can use these shortened IDs with `/task` command — no need to copy the full UUID.
+</Tip>
+
+## Technical Details
+
+Implementation location: `src/telegram.ts:75-92`
+
+```typescript
+if (text === "/tasks" || text.startsWith("/tasks@")) {
+  try {
+    const tasks = await listActiveTasks();
+    if (tasks.length === 0) {
+      await ctx.reply("No active tasks.");
+    } else {
+      const lines = tasks.map((t) => {
+        const age = formatAge(t.created_at);
+        const instr = t.instruction.length > 50 
+          ? t.instruction.slice(0, 47) + "..." 
+          : t.instruction;
+        return `${t.id.slice(0, 8)}  ${t.status}  ${age}  ${instr}`;
+      });
+      await ctx.reply(lines.join("\n"));
+    }
+  } catch (err) {
+    await ctx.reply("Failed to list tasks.").catch(() => {});
+  }
+  return;
+}
+```
+
+Queries the `warden_tasks` table in Supabase for tasks where `status IN ('pending', 'running')`, ordered by creation time.

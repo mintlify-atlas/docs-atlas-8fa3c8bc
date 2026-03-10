@@ -1,0 +1,173 @@
+---
+title: Environment Variables
+description: Configure Warden's database, LLM providers, and integrations
+---
+
+Warden uses environment variables for all configuration. Copy `.env.example` to `.env` and fill in your credentials.
+
+## Required Variables
+
+<ParamField path="SUPABASE_URL" type="string" required>
+  Your Supabase project URL
+  
+  ```bash
+  SUPABASE_URL=https://your-project.supabase.co
+  ```
+  
+  Find this in your [Supabase project settings](https://app.supabase.com) under **Settings → API**.
+</ParamField>
+
+<ParamField path="SUPABASE_ANON_KEY" type="string" required>
+  Your Supabase anonymous/public API key
+  
+  ```bash
+  SUPABASE_ANON_KEY=your-anon-key
+  ```
+  
+  <Warning>
+    Use the `anon` key, not the `service_role` key. The anon key is safe for client-side use with Row Level Security policies.
+  </Warning>
+</ParamField>
+
+<ParamField path="ANTHROPIC_API_KEY" type="string">
+  API key for using Claude models directly via Anthropic
+  
+  ```bash
+  ANTHROPIC_API_KEY=your-anthropic-api-key
+  ```
+  
+  Required if using `--provider anthropic`. Get your key from [console.anthropic.com](https://console.anthropic.com).
+</ParamField>
+
+<ParamField path="OPENROUTER_API_KEY" type="string">
+  API key for using models via OpenRouter
+  
+  ```bash
+  OPENROUTER_API_KEY=your-openrouter-api-key
+  ```
+  
+  Required if using `--provider openrouter` (the default). Get your key from [openrouter.ai/keys](https://openrouter.ai/keys).
+</ParamField>
+
+## Optional Integrations
+
+<ParamField path="TELEGRAM_BOT_TOKEN" type="string">
+  Telegram bot token for receiving tasks via Telegram
+  
+  ```bash
+  TELEGRAM_BOT_TOKEN=your-telegram-bot-token
+  ```
+  
+  <Note>
+    Omit this variable to disable Telegram integration. When set, Warden will start a Telegram bot using long polling (no webhook required).
+  </Note>
+  
+  Create a bot via [@BotFather](https://t.me/BotFather) and copy the token.
+</ParamField>
+
+<ParamField path="WP_SSH" type="string">
+  SSH connection string for WordPress management via wp-cli
+  
+  ```bash
+  WP_SSH=user@ssh.wp.com
+  # Or with custom path:
+  WP_SSH=user@host/path/to/wordpress
+  ```
+  
+  Used by the `wp` CLI tool for remote WordPress operations. Requires wp-cli installed locally and SSH access to your WordPress server.
+</ParamField>
+
+## Default Model Configuration
+
+<ParamField path="DEFAULT_PROVIDER" type="string" default="openrouter">
+  Default LLM provider when not specified via `--provider` flag
+  
+  ```bash
+  DEFAULT_PROVIDER=anthropic
+  ```
+  
+  Valid options: `anthropic`, `openrouter`
+</ParamField>
+
+<ParamField path="DEFAULT_MODEL" type="string" default="anthropic/claude-sonnet-4">
+  Default model ID when not specified via `--model` flag
+  
+  ```bash
+  DEFAULT_MODEL=anthropic/claude-sonnet-4
+  ```
+  
+  For Anthropic provider, use model IDs like:
+  - `claude-sonnet-4`
+  - `claude-opus-4`
+  
+  For OpenRouter, use namespaced IDs like:
+  - `anthropic/claude-sonnet-4`
+  - `anthropic/claude-opus-4`
+</ParamField>
+
+## Task Metadata
+
+<ParamField path="WARDEN_TASK_METADATA" type="json">
+  Default metadata attached to tasks created via REPL
+  
+  ```bash
+  WARDEN_TASK_METADATA='{"source":"repl","priority":"high"}'
+  ```
+  
+  <Note>
+    Metadata is a JSONB field that flows through the system. Cron jobs can specify their own metadata (e.g., `{"source": "telegram", "chatId": 123}`) which gets merged with task metadata for routing.
+  </Note>
+  
+  See [resolve-metadata.ts:13](file:///home/daytona/workspace/source/src/resolve-metadata.ts:13) for implementation details.
+</ParamField>
+
+## Validation
+
+<CodeGroup>
+```bash Anthropic
+# Requires ANTHROPIC_API_KEY when using --provider anthropic
+npm run dev -- --provider anthropic --model claude-sonnet-4
+```
+
+```bash OpenRouter
+# Requires OPENROUTER_API_KEY when using --provider openrouter
+npm run dev -- --provider openrouter --model anthropic/claude-sonnet-4
+```
+</CodeGroup>
+
+Warden validates required API keys at startup. See [config.ts:8-13](file:///home/daytona/workspace/source/src/config.ts:8) for validation logic:
+
+```typescript
+if (provider === "anthropic" && !process.env.ANTHROPIC_API_KEY) {
+  throw new Error("ANTHROPIC_API_KEY is required for Anthropic provider");
+}
+if (provider === "openrouter" && !process.env.OPENROUTER_API_KEY) {
+  throw new Error("OPENROUTER_API_KEY is required for OpenRouter provider");
+}
+```
+
+## Example .env File
+
+```bash
+# Required: Supabase connection
+SUPABASE_URL=https://abcdefgh.supabase.co
+SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+# Required: At least one LLM provider
+ANTHROPIC_API_KEY=sk-ant-api03-...
+OPENROUTER_API_KEY=sk-or-v1-...
+
+# Optional: Telegram integration
+TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+
+# Optional: WordPress management
+WP_SSH=myuser@ssh.wp.com/public_html
+
+# Optional: Defaults (can be overridden via CLI flags)
+DEFAULT_PROVIDER=openrouter
+DEFAULT_MODEL=anthropic/claude-sonnet-4
+```
+
+<Warning>
+  Never commit your `.env` file. The `.gitignore` automatically excludes it. Use `.env.example` for documentation.
+</Warning>

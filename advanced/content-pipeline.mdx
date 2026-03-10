@@ -1,0 +1,244 @@
+---
+title: "Automated Content Pipeline"
+description: "End-to-end workflow for automated blog publishing with V2Cloud partnership monitoring"
+---
+
+Warden runs a fully automated content marketing pipeline for **openclaws.blog**, monitoring partner content changes, generating topic ideas, and publishing polished blog posts on a schedule.
+
+## Pipeline Overview
+
+The content automation system runs on three coordinated cron jobs:
+
+<Steps>
+  <Step title="Daily Partner Monitoring">
+    Scans V2Cloud's WordPress site for new content and updates (8am PT daily)
+  </Step>
+  <Step title="Topic Generation">
+    Classifies changes and generates complementary topic ideas with scoring
+  </Step>
+  <Step title="Bi-Weekly Publishing">
+    Reviews collected topics, writes full posts, and publishes to WordPress (Wed + Sun 9am PT)
+  </Step>
+</Steps>
+
+## Active Cron Jobs
+
+From `~/workspace/source/CLAUDE.md:146-150`:
+
+| Job | Schedule | What It Does |
+|-----|----------|-------------|
+| `daily-v2cloud-scan` | Daily 8am PT | Monitors V2Cloud site for content changes. Classifies each as new vs refresh, generates 1-2 **complementary** topic ideas for openclaws.blog. Uses `co-marketing` skill. |
+| `biweekly-blog-publish` | Wed + Sun 9am PT | Reviews topic ideas from recent daily scans, picks the best one, writes a full blog post, and **publishes** it on WordPress. Uses `content-style` + `seo-audit` skills. |
+| `Ting walk reminder` | Daily 3pm PT | Sends walk reminder to Telegram. |
+
+## Daily Monitoring Workflow
+
+### Partner Scanning
+
+The daily scan job uses the **co-marketing skill** to monitor V2Cloud's WordPress REST API:
+
+```bash
+# Posts modified in last 24h
+curl -s "https://v2cloud.com/wp-json/wp/v2/posts?per_page=100&modified_after=2026-03-08T00:00:00&modified_before=2026-03-09T00:00:00&_fields=id,slug,author,modified,date&orderby=modified&order=asc"
+
+# Pages modified in last 24h
+curl -s "https://v2cloud.com/wp-json/wp/v2/posts?per_page=100&modified_after=2026-03-08T00:00:00&modified_before=2026-03-09T00:00:00&_fields=id,slug,author,modified,date&orderby=modified&order=asc"
+```
+
+### Content Classification
+
+Warden compares `date` (created) vs `modified` timestamps:
+
+<Accordion title="Classification Logic">
+  | Condition | Type | Next Action |
+  |-----------|------|-------------|
+  | `date` is recent (within range) | ✨ **NEW** content | Generate complementary topic |
+  | `date` is old, `modified` is recent | 🔄 **REFRESH** (updated) | Analyze angle shift |
+  | Slug contains `/fr/`, `/es/`, `/it/` | 🌐 **Translation** | Skip (no new ideas) |
+  | Slug under `/solutions/`, `/products/` | 📄 **Template page** | Check if pattern applies |
+</Accordion>
+
+### Topic Idea Generation
+
+From `~/workspace/source/CLAUDE.md:154-159`:
+
+```
+Daily scan (8am PT)
+  → Query V2Cloud REST API for posts/pages modified in last 24h
+  → Classify: new content vs refresh
+  → Generate 1-2 topic ideas with scoring (keyword overlap, content gap, co-marketing potential)
+  → Report findings via task result
+```
+
+<Note>
+  **V2Cloud Partnership Rule**: Every topic must pass: "Would V2Cloud's content team happily link to this?" The partnership is co-marketing, not competitive.
+</Note>
+
+## Bi-Weekly Publishing Workflow
+
+### Content Production
+
+From `~/workspace/source/CLAUDE.md:161-168`:
+
+```
+Wed + Sun (9am PT)
+  → Collect topic ideas from recent daily scans
+  → Pick best topic based on scoring criteria
+  → Load content-style skill (audience rules, branded metaphors, structure template)
+  → Load seo-audit skill (on-page SEO checklist)
+  → Write full blog post (2,000-3,000 words)
+  → Publish to WordPress via wp-cli: wp post create --post_status=publish --ssh="$WP_SSH"
+```
+
+### Skills in the Pipeline
+
+From `~/workspace/source/CLAUDE.md:172-178`:
+
+| Skill | File | Purpose |
+|-------|------|----------|
+| `content-style` | `skills/content-style.md` | Writing style, structure template, **target audience rules**, branded metaphor patterns, jargon blacklist |
+| `co-marketing` | `skills/co-marketing.md` | V2Cloud partner monitoring, complementary topic generation, REST API + sitemap + Wayback scanning |
+| `seo-audit` | `skills/seo-audit.md` | On-page SEO checklist, keyword research workflow |
+| `aeo-audit` | `skills/aeo-audit.md` | Answer Engine Optimization for AI-generated answers (ChatGPT, Perplexity, Google AI Overviews) |
+| `publish` | `skills/publish.md` | wp-cli reference, page IDs (Home=37, About=1, Blog=38), site settings |
+
+### Publishing via wp-cli
+
+Warden publishes directly to WordPress over SSH using [wp-cli](https://wp-cli.org/):
+
+```bash
+# Create and publish a new post
+wp post create \
+  --post_title="Your Post Title" \
+  --post_content="$(cat post.html)" \
+  --post_status=publish \
+  --ssh="$WP_SSH"
+
+# Update an existing post
+wp post update 123 \
+  --post_content="$(cat updated.html)" \
+  --ssh="$WP_SSH"
+```
+
+<Warning>
+  The `WP_SSH` environment variable must be set (e.g., `user@ssh.wp.com`). wp-cli is installed via Homebrew at `/opt/homebrew/bin/wp`.
+</Warning>
+
+## Target Audience Rules
+
+From `~/workspace/source/skills/content-style.md:67-91`, all blog content targets **non-technical business professionals**:
+
+<Accordion title="Audience Guidelines">
+  - **Primary personas**: IT managers, business owners, SMB decision-makers, marketing leaders
+  - **Technical level**: Low-to-moderate. Assume readers understand business concepts but NOT developer tools.
+  - **NEVER use unexplained jargon**: No SSH, Docker, pm2, pyenv, webpack, API keys, vCPUs, egress bandwidth
+  - **Replace developer terms** with business equivalents:
+    - SSH → "remote access"
+    - API keys → "service credentials (the digital passwords that connect your tools)"
+    - vCPUs → "virtual processors"
+    - Noisy neighbors → "other users competing for the same resources"
+  - **Introduce branded metaphors** and repeat them: "The Infrastructure Gap", "The Always-On Tax", "The Laptop Trap"
+  - **Frame everything as business outcomes**: revenue impact, time saved, client satisfaction, billable hours recovered
+</Accordion>
+
+## Content Structure Template
+
+From `~/workspace/source/skills/content-style.md:21-64`, every post follows:
+
+```
+H1: Title (compelling, benefit-driven or question-based)
+
+Opening Hook (2-3 paragraphs)
+  - Lead with statistic, market data, or compelling question
+  - Establish the problem or opportunity
+  - Bridge to your thesis
+
+H2: Key Takeaways
+  - 3-5 bullet points summarizing main points
+  - Scannable preview for skimmers
+
+H2: Context / Why This Matters
+H2: The Problem
+  - H3 subsections for each pain point (2-4)
+H2: The Solution
+  - H3 subsections for each benefit (2-4)
+H2: Comparison (table)
+H2: Real-World Example
+H2: Getting Started / Implementation
+H2: Frequently Asked Questions
+```
+
+## Task Metadata Routing
+
+Cron jobs can attach metadata to route responses back to specific sources. See [Metadata Routing](/advanced/metadata-routing) for details.
+
+Example from daily scan:
+
+```typescript
+// Cron job with Telegram routing
+const job = await insertCronJob({
+  name: "daily-v2cloud-scan",
+  cron_expression: "0 8 * * *",
+  cron_timezone: "America/Los_Angeles",
+  instruction: "Load co-marketing skill and scan V2Cloud for content changes in last 24h",
+  task_metadata: {
+    source: "telegram",
+    chatId: 123456789,  // Results sent to this Telegram chat
+    cron: true
+  }
+});
+```
+
+## Managing Content Jobs
+
+See [Cron Patterns](/advanced/cron-patterns) for full CLI reference.
+
+```bash
+# List all content jobs
+npx tsx src/cron-cli.ts list
+
+# Manually trigger daily scan
+npx tsx src/cron-cli.ts run <daily-scan-job-id>
+
+# Disable bi-weekly publishing temporarily
+npx tsx src/cron-cli.ts update <publish-job-id> --disable
+
+# Re-enable when ready
+npx tsx src/cron-cli.ts update <publish-job-id> --enable
+```
+
+## WordPress Site Structure
+
+From `~/workspace/source/CLAUDE.md:191-198`:
+
+| Page ID | Page | Purpose |
+|---------|------|----------|
+| 37 | Home | Hero headline, value propositions, latest posts |
+| 1 | About | Blog mission, what we cover, our tools |
+| 38 | Blog | Blog listing page |
+
+Site tagline: "AI automation guides for business owners and IT leaders"
+
+## Monitoring Pipeline Health
+
+Check task results in Supabase:
+
+```sql
+-- Recent content pipeline tasks
+SELECT id, instruction, status, result, created_at
+FROM warden_tasks
+WHERE metadata->>'cron' = 'true'
+ORDER BY created_at DESC
+LIMIT 20;
+
+-- Failed pipeline tasks
+SELECT id, instruction, error, created_at
+FROM warden_tasks
+WHERE metadata->>'cron' = 'true'
+  AND status = 'failed'
+ORDER BY created_at DESC;
+```
+
+<Note>
+  All pipeline tasks include `{"cron": true}` in their metadata for easy filtering.
+</Note>

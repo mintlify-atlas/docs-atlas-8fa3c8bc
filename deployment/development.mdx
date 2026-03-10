@@ -1,0 +1,417 @@
+---
+title: 'Development Workflow'
+description: 'Set up and run Warden locally for development and testing'
+---
+
+## Overview
+
+Warden development uses TypeScript, Node.js built-in test runner, and live Supabase for the task queue. This guide covers local setup, testing, and common workflows.
+
+## Initial Setup
+
+<Steps>
+  <Step title="Clone and install">
+    ```bash
+    git clone <repository-url>
+    cd warden
+    npm install
+    ```
+  </Step>
+
+  <Step title="Configure environment">
+    Copy the example environment file:
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    Edit `.env` and fill in required values:
+
+    ```bash
+    SUPABASE_URL=https://your-project.supabase.co
+    SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+    ANTHROPIC_API_KEY=sk-ant-...
+    OPENROUTER_API_KEY=sk-or-...  # Optional
+    TELEGRAM_BOT_TOKEN=...         # Optional
+    WARDEN_PORT=3100               # Optional (defaults to 3100)
+    ```
+
+    <Warning>
+    Never commit `.env` to version control. Use `.env.example` for documentation only.
+    </Warning>
+  </Step>
+
+  <Step title="Run database migrations">
+    Apply the schema to your Supabase project:
+
+    1. Go to Supabase Dashboard → SQL Editor
+    2. Run `supabase/migrations/001_initial_schema.sql`
+    3. Run `supabase/migrations/002_add_task_metadata.sql`
+
+    This creates three tables: `warden_tasks`, `warden_agent_steps`, and `warden_conversation_history`.
+  </Step>
+</Steps>
+
+## Running Locally
+
+### Development mode
+
+Start Warden with live TypeScript compilation:
+
+```bash
+npm run dev
+```
+
+This launches all three subsystems:
+- HTTP server on port 3100
+- Task runner (polls Supabase every 2 seconds)
+- Interactive REPL
+
+<Tip>
+Always log output to a file for debugging:
+
+```bash
+npm run dev 2>&1 | tee log.txt
+```
+
+This writes to both terminal and `log.txt`.
+</Tip>
+
+### Production build
+
+Compile TypeScript to JavaScript:
+
+```bash
+npm run build
+```
+
+Output goes to `dist/` directory. Run the compiled version:
+
+```bash
+node dist/index.js
+```
+
+### CLI flags
+
+Override provider and model at runtime:
+
+<CodeGroup>
+```bash Anthropic
+npm run dev -- --provider anthropic --model claude-4.5-sonnet
+```
+
+```bash OpenRouter
+npm run dev -- --provider openrouter --model anthropic/claude-4.5-sonnet
+```
+</CodeGroup>
+
+Flags override environment variables (`WARDEN_PROVIDER`, `WARDEN_MODEL`).
+
+## Testing
+
+### Run all tests
+
+Warden uses Node's built-in test runner:
+
+```bash
+npm test
+```
+
+This runs `tests/**/*.test.ts` via `tsx`.
+
+<Warning>
+Tests require a running Warden instance. Start `npm run dev` in another terminal before running tests.
+</Warning>
+
+### Test structure
+
+Tests live in `tests/` directory:
+
+```
+tests/
+└── resolve-metadata.test.ts  # Metadata inheritance tests
+```
+
+Example test file structure:
+
+```typescript
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+
+describe('Feature name', () => {
+  it('should do something', async () => {
+    // Test logic using real Supabase
+    assert.strictEqual(result, expected);
+  });
+});
+```
+
+### Protected tests
+
+Baseline tests are protected by pre-commit hooks. You **cannot**:
+- Delete existing test files
+- Remove assertions from existing tests
+- Weaken test coverage
+
+You **can**:
+- Add new test files
+- Add assertions to existing tests
+- Improve test quality
+
+This is enforced by `.claude/settings.json` and Husky hooks.
+
+## Development Tools
+
+### Interactive REPL
+
+The REPL starts automatically with `npm run dev`. It has two modes:
+
+<CodeGroup>
+```text Queue Mode (default)
+> Fix the typo in README.md
+
+Task queued to Supabase (ID: abc-123)
+Runner will pick it up in ~2 seconds
+```
+
+```text Direct Mode
+> /direct
+Switched to direct mode
+
+> What files are in this directory?
+[Agent streams response directly to terminal]
+```
+</CodeGroup>
+
+#### REPL commands
+
+- `/queue` - Switch to queue mode (tasks go through Supabase)
+- `/direct` - Switch to direct mode (bypass queue, instant response)
+- `/new` - Reset conversation history
+- `/quit` - Exit REPL
+
+### Cron job management
+
+Manage scheduled tasks with the cron CLI:
+
+<CodeGroup>
+```bash List jobs
+npx tsx src/cron-cli.ts list
+```
+
+```bash Add job
+npx tsx src/cron-cli.ts add \
+  --name "daily-backup" \
+  --cron "0 2 * * *" \
+  --tz "America/Los_Angeles" \
+  --instruction "Back up the database"
+```
+
+```bash Update job
+npx tsx src/cron-cli.ts update <id> --enabled false
+```
+
+```bash Delete job
+npx tsx src/cron-cli.ts delete <id>
+```
+</CodeGroup>
+
+## Code Structure
+
+### Entry point
+
+`src/index.ts` - Orchestrates startup:
+
+1. Loads `.env` variables
+2. Parses CLI flags (`--provider`, `--model`)
+3. Starts HTTP server (`server.ts`)
+4. Starts task runner (`runner.ts`)
+5. Starts REPL (`repl.ts`)
+6. Handles `SIGTERM` for graceful shutdown
+
+### Core subsystems
+
+```
+src/
+├── index.ts           # Orchestrator
+├── server.ts          # HTTP API (POST /api/task, GET /health)
+├── runner.ts          # Task poller + executor
+├── repl.ts            # Interactive CLI
+├── telegram.ts        # Telegram bot (optional)
+├── session-store.ts   # Agent session caching
+├── config.ts          # Provider/model resolution
+├── prompt.ts          # System prompt
+├── logger.ts          # Event → database logging
+└── data_model/        # Supabase types + helpers
+    ├── types.ts       # TypeScript interfaces
+    ├── db.ts          # Database operations
+    └── index.ts       # Barrel export
+```
+
+### Database helpers
+
+All Supabase operations go through `data_model/db.ts`:
+
+```typescript
+import { insertTask, claimTask, completeTask } from './data_model/index.js';
+
+// Insert new task
+const task = await insertTask({
+  instruction: 'Fix the bug',
+  source: 'repl',
+  metadata: { priority: 'high' }
+});
+
+// Claim for execution
+const claimed = await claimTask(task.id);
+
+// Mark complete
+await completeTask(task.id, { result: 'Fixed' });
+```
+
+<Tip>
+Never use raw SQL. All database operations must go through typed helpers in `data_model/db.ts`.
+</Tip>
+
+## Definition of Done
+
+A task is complete when **ALL** of the following are true:
+
+1. `npm run build` passes with no type errors
+2. `npm test` passes (all existing tests green)
+3. New functionality has at least one test in `tests/`
+4. No secrets or credentials are hardcoded (use `.env`)
+5. Changes are committed with a descriptive message
+
+## Common Workflows
+
+### Adding a new feature
+
+<Steps>
+  <Step title="Write the implementation">
+    Edit source files in `src/`. TypeScript will catch type errors.
+  </Step>
+
+  <Step title="Add tests">
+    Create or update tests in `tests/`:
+
+    ```typescript
+    import { describe, it } from 'node:test';
+    import assert from 'node:assert';
+
+    describe('New feature', () => {
+      it('should work correctly', async () => {
+        // Test against live Supabase
+      });
+    });
+    ```
+  </Step>
+
+  <Step title="Verify everything passes">
+    ```bash
+    npm run build  # Check TypeScript errors
+    npm test       # Run all tests (requires dev server)
+    ```
+  </Step>
+
+  <Step title="Commit changes">
+    ```bash
+    git add .
+    git commit -m "Add feature X"
+    ```
+
+    Pre-commit hooks will verify:
+    - TypeScript compiles
+    - Tests pass
+    - Protected test files unchanged
+  </Step>
+</Steps>
+
+### Debugging tasks
+
+<Steps>
+  <Step title="Check task status">
+    Query Supabase directly or check logs:
+
+    ```bash
+    pm2 logs warden --lines 100
+    ```
+  </Step>
+
+  <Step title="Review agent steps">
+    Each task logs to `warden_agent_steps` table. Check:
+    - Tool executions
+    - Tool results
+    - Token usage per turn
+  </Step>
+
+  <Step title="Replay in REPL">
+    Test instructions interactively:
+
+    ```bash
+    npm run dev
+    > /direct
+    > [paste the instruction]
+    ```
+
+    Direct mode shows real-time agent reasoning.
+  </Step>
+</Steps>
+
+### Updating dependencies
+
+```bash
+npm update
+npm run build
+npm test
+```
+
+Key dependencies:
+- `@mariozechner/pi-coding-agent` - Agent session + tools
+- `@mariozechner/pi-ai` - LLM provider abstraction
+- `@supabase/supabase-js` - Database client
+- `grammy` - Telegram bot framework
+
+<Warning>
+Do not add dependencies without justification. Prefer Node built-ins and existing libraries.
+</Warning>
+
+## Troubleshooting
+
+### Port 3100 in use
+
+Change the port in `.env`:
+
+```bash
+WARDEN_PORT=3200
+```
+
+### Database connection fails
+
+Verify Supabase credentials:
+
+```bash
+curl "$SUPABASE_URL/rest/v1/" \
+  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY"
+```
+
+Should return `{"message":"..."}`.
+
+### Tests fail
+
+Ensure dev server is running:
+
+```bash
+# Terminal 1
+npm run dev
+
+# Terminal 2
+npm test
+```
+
+## Next Steps
+
+- [PM2 Deployment](/deployment/pm2) - Run Warden 24/7 in production
+- [Architecture Overview](/architecture/overview) - Understand system design
+- [Environment Variables](/configuration/environment) - Configure all settings

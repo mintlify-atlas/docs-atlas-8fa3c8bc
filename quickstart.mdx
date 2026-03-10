@@ -1,80 +1,269 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Get Warden running in 5 minutes with your first automated task"
 ---
 
-## Get started in three steps
+Get Warden up and running on your local machine in 5 minutes. By the end of this guide, you'll have a working agent that can execute automated tasks.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before you begin, ensure you have:
+
+- **Node.js 18+** installed
+- A **Supabase account** (free tier works)
+- An **Anthropic API key** (or OpenRouter key)
+- **Git** installed
+
+<Steps>
+  <Step title="Clone the Repository">
+    Clone Warden to your local machine:
+
+    ```bash
+    git clone https://github.com/your-org/warden.git
+    cd warden
+    ```
+  </Step>
+
+  <Step title="Install Dependencies">
+    Install all required packages:
+
+    ```bash
+    npm install
+    ```
+
+    <Note>
+      Installation typically takes 30-60 seconds depending on your connection speed.
+    </Note>
+  </Step>
+
+  <Step title="Set Up Your Supabase Project">
+    1. Go to [supabase.com](https://supabase.com) and create a new project
+    2. Wait for the project to finish provisioning (2-3 minutes)
+    3. Navigate to **Settings → API** and copy:
+       - Project URL (`SUPABASE_URL`)
+       - `anon` public key (`SUPABASE_ANON_KEY`)
+    4. Navigate to **SQL Editor** and run the migration:
+
+    ```sql
+    -- Copy and paste the contents of supabase/migrations/001_initial_schema.sql
+    -- This creates the tasks, agent_steps, and conversation_history tables
+    ```
+
+    <Warning>
+      Use the **service_role** key (not anon key) if you need full database access. The anon key works for most use cases with Row Level Security disabled.
+    </Warning>
+  </Step>
+
+  <Step title="Configure Environment Variables">
+    Copy the example environment file and fill in your credentials:
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    Edit `.env` with your actual values:
+
+    <CodeGroup>
+      ```bash .env (Anthropic)
+      # Supabase
+      SUPABASE_URL=https://your-project.supabase.co
+      SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+      # LLM Provider - Anthropic
+      ANTHROPIC_API_KEY=sk-ant-api03-...
+
+      # Optional: Telegram integration (omit to disable)
+      # TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+
+      # Optional: WordPress publishing via SSH
+      # WP_SSH=user@ssh.wp.com
+      ```
+
+      ```bash .env (OpenRouter)
+      # Supabase
+      SUPABASE_URL=https://your-project.supabase.co
+      SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+      # LLM Provider - OpenRouter
+      OPENROUTER_API_KEY=sk-or-v1-...
+
+      # Optional: Telegram integration (omit to disable)
+      # TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+
+      # Optional: WordPress publishing via SSH
+      # WP_SSH=user@ssh.wp.com
+      ```
+    </CodeGroup>
+
+    <Note>
+      Warden defaults to Anthropic's Claude Sonnet. To use a different provider or model, pass CLI flags: `--provider openrouter --model anthropic/claude-3.5-sonnet`
+    </Note>
+  </Step>
+
+  <Step title="Start the Development Server">
+    Launch Warden with logging enabled:
+
+    ```bash
+    npm run dev 2>&1 | tee log.txt
+    ```
+
+    You should see output like this:
+
+    ```
+    [Warden] Starting up...
+    [Warden] Using provider: anthropic, model: claude-sonnet-4-20250514
+    [Warden] Task runner started (polling every 2s)
+    [Warden] REPL started
+    [Warden] Server listening on http://localhost:3100
+
+    warden>
+    ```
+
+    <Note>
+      The `tee log.txt` command writes output to both your terminal and a log file for debugging.
+    </Note>
+  </Step>
+
+  <Step title="Execute Your First Task">
+    In the REPL prompt, type a simple task:
+
+    ```
+    warden> Create a file called hello.txt with the text "Hello from Warden!"
+    ```
+
+    Watch the agent work:
+
+    ```
+    [Task claimed] ID: 550e8400-e29b-41d4-a716-446655440000
+    [Agent] I'll create that file for you.
+    [Tool] write_file(path="hello.txt", content="Hello from Warden!")
+    [Result] File written successfully
+    [Task complete] Status: done, Duration: 2.3s
+    ```
+
+    Verify the file was created:
+
+    ```bash
+    cat hello.txt
+    ```
+
+    Output:
+    ```
+    Hello from Warden!
+    ```
+
+    Congratulations! You've successfully run your first automated task.
+  </Step>
+</Steps>
+
+## Understanding the Output
+
+When Warden executes a task, it logs several event types:
+
+| Event Type | Description |
+|------------|-------------|
+| `[Task claimed]` | Runner picked up the task from the queue |
+| `[Agent]` | LLM reasoning and planning output |
+| `[Tool]` | Tool being executed (bash, read, write, edit) |
+| `[Result]` | Tool execution result |
+| `[Task complete]` | Final status and execution time |
+
+All of this is also stored in Supabase:
+- **tasks** table: task status, result, timestamps
+- **agent_steps** table: every tool call and result
+- **conversation_history** table: full message array for crash recovery
+
+## REPL Modes
+
+The REPL supports two execution modes:
+
+<CodeGroup>
+  ```bash Direct Mode (default)
+  warden> /direct
+  [REPL] Switched to direct mode
+
+  warden> What files are in this directory?
+  # Agent responds immediately, streaming to terminal
+  ```
+
+  ```bash Queue Mode
+  warden> /queue
+  [REPL] Switched to queue mode
+
+  warden> What files are in this directory?
+  [Task queued] ID: 123e4567-e89b-12d3-a456-426614174000
+  # Runner picks it up in next poll cycle (2s)
+  ```
+</CodeGroup>
+
+- **Direct mode** — Creates its own agent session, streams responses directly. Best for testing.
+- **Queue mode** — Inserts tasks into Supabase like the HTTP API. Best for simulating production.
+
+Switch modes anytime with `/direct` or `/queue`. Exit with `/quit`.
+
+## Troubleshooting
 
 <AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
+  <Accordion title="Error: Invalid Supabase credentials">
+    **Cause**: Wrong `SUPABASE_URL` or `SUPABASE_ANON_KEY`
+
+    **Fix**:
+    1. Go to your Supabase project → Settings → API
+    2. Copy the exact values (no trailing slashes in URL)
+    3. Update `.env` and restart Warden
   </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
+
+  <Accordion title="Error: No API key found for provider">
+    **Cause**: Missing or invalid LLM provider API key
+
+    **Fix**:
+    - For Anthropic: Set `ANTHROPIC_API_KEY` in `.env`
+    - For OpenRouter: Set `OPENROUTER_API_KEY` in `.env`
+    - Restart Warden after updating `.env`
+  </Accordion>
+
+  <Accordion title="Tasks stuck in 'pending' status">
+    **Cause**: Runner might not be polling, or database migration didn't run
+
+    **Fix**:
+    1. Check the terminal for `[Warden] Task runner started (polling every 2s)`
+    2. Verify the migration ran: `SELECT * FROM warden_tasks LIMIT 1;` in Supabase SQL Editor
+    3. If table doesn't exist, re-run the migration from `supabase/migrations/001_initial_schema.sql`
+  </Accordion>
+
+  <Accordion title="Port 3100 already in use">
+    **Cause**: Another service is using the default port
+
+    **Fix**:
+    1. Add `WARDEN_PORT=3200` to `.env` (or any free port)
+    2. Restart Warden
+  </Accordion>
+
+  <Accordion title="Agent has no access to files outside working directory">
+    **Cause**: Agent tools run in the directory where Warden was started
+
+    **Fix**:
+    - Use absolute paths: `/Users/yourname/Desktop/file.txt`
+    - Or navigate first: `cd /path/to/dir && ls`
+    - The agent's bash tool supports full shell commands
   </Accordion>
 </AccordionGroup>
 
-### Step 2: Deploy your changes
+## Next Steps
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
+Now that Warden is running, explore these topics:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Installation" icon="download" href="/installation">
+    Learn about production deployment with pm2, environment configuration, and 24/7 operation
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/concepts/architecture">
+    Deep dive into how Warden works: task lifecycle, subsystems, and database schema
+  </Card>
+  <Card title="REPL Modes" icon="terminal" href="/commands/repl/modes">
+    Master direct vs queue mode, session persistence, and advanced REPL commands
+  </Card>
+  <Card title="HTTP API" icon="code" href="/interfaces/http-api">
+    Submit tasks programmatically, integrate with webhooks, and build on top of Warden
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

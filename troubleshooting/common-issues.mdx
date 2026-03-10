@@ -1,0 +1,504 @@
+---
+title: Common Issues
+description: Solutions to frequently encountered problems when running Warden
+---
+
+## Environment Setup
+
+### Missing Environment Variables
+
+<Warning>
+  Warden requires specific environment variables to function. Missing variables will cause startup failures.
+</Warning>
+
+If you see errors like:
+
+```bash
+Error: SUPABASE_URL and SUPABASE_ANON_KEY must be set
+```
+
+Or:
+
+```bash
+Error: ANTHROPIC_API_KEY is required for Anthropic provider
+Error: OPENROUTER_API_KEY is required for OpenRouter provider
+```
+
+**Solution:**
+
+1. Copy the example environment file:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Fill in your credentials in `.env`:
+   ```bash
+   # Supabase (required)
+   SUPABASE_URL=https://your-project.supabase.co
+   SUPABASE_ANON_KEY=your-anon-key
+
+   # LLM Providers (at least one required)
+   ANTHROPIC_API_KEY=your-anthropic-api-key
+   OPENROUTER_API_KEY=your-openrouter-api-key
+
+   # Telegram (optional)
+   TELEGRAM_BOT_TOKEN=your-telegram-bot-token
+
+   # WordPress (optional)
+   WP_SSH=user@ssh.wp.com
+   ```
+
+3. Restart Warden:
+   ```bash
+   npm run dev 2>&1 | tee log.txt
+   ```
+
+<Note>
+  The `.env` file is gitignored by default to prevent committing secrets.
+</Note>
+
+---
+
+## Task Execution Issues
+
+### Tasks Stuck in "Running" State
+
+If Warden crashes while executing a task, the task may remain in `running` state in the database.
+
+**Symptoms:**
+- Tasks not being picked up
+- Log message: `[runner] Marked N stuck task(s) as failed`
+
+**How it works:**
+
+Warden automatically detects and recovers from this on startup:
+
+```typescript:~/workspace/source/src/runner.ts
+export async function startRunner(
+  provider: string,
+  modelId: string,
+  pollIntervalMs: number = 2000
+): Promise<void> {
+  running = true;
+
+  // Mark any tasks stuck in "running" as failed (from a previous crash)
+  const failedCount = await failStuckTasks();
+  if (failedCount > 0) {
+    console.log(`[runner] Marked ${failedCount} stuck task(s) as failed`);
+  }
+
+  console.log(`[runner] Polling for tasks every ${pollIntervalMs}ms`);
+  // ...
+}
+```
+
+**Manual recovery:**
+
+If you need to manually mark stuck tasks as failed, update them directly in Supabase:
+
+```sql
+UPDATE warden_tasks
+SET status = 'failed',
+    error = 'Manually recovered',
+    completed_at = NOW()
+WHERE status = 'running';
+```
+
+---
+
+## Database Connection Issues
+
+### Supabase Connection Failures
+
+<Accordion title="Error: Failed to fetch" defaultOpen>
+  **Cause:** Network issues or incorrect Supabase URL/key
+
+  **Solution:**
+  1. Verify your Supabase credentials in `.env`
+  2. Check your internet connection
+  3. Ensure your Supabase project is active (not paused)
+  4. Test connection manually:
+     ```bash
+     curl "$SUPABASE_URL/rest/v1/" \
+       -H "apikey: $SUPABASE_ANON_KEY"
+     ```
+</Accordion>
+
+<Accordion title="Error: JWT expired">
+  **Cause:** The `SUPABASE_ANON_KEY` is expired or invalid
+
+  **Solution:**
+  1. Go to your Supabase project dashboard
+  2. Navigate to Settings → API
+  3. Copy a fresh `anon` key
+  4. Update `SUPABASE_ANON_KEY` in your `.env` file
+  5. Restart Warden
+</Accordion>
+
+---
+
+## Session & Memory Issues
+
+### Session Not Persisting Between Tasks
+
+**Expected behavior:**
+- Telegram chats: Each chat ID gets its own persistent session
+- REPL: Single persistent session across all commands
+- Cron jobs: **No persistence** (stateless by design)
+
+**How sessions work:**
+
+Warden derives session keys from task metadata:
+
+```typescript:~/workspace/source/src/session-store.ts
+export function deriveSessionKey(metadata: Record<string, unknown> | null | undefined): string | null {
+  if (!metadata) return null;
+  if (metadata.cron) return null; // cron tasks are stateless
+
+  if (metadata.source === "telegram" && metadata.chatId != null) {
+    return `telegram-${metadata.chatId}`;
+  }
+  if (metadata.source === "repl") {
+    return "repl";
+  }
+  return null;
+}
+```
+
+Sessions are stored in `~/.warden/sessions/` as JSONL files.
+
+**Reset a session:**
+
+<CodeGroup>
+```bash REPL
+/new
+```
+
+```bash Telegram
+/new
+```
+</CodeGroup>
+
+---
+
+## Model & Provider Issues
+
+### Invalid Model Configuration
+
+<Warning>
+  Provider must match the API key you've configured
+</Warning>
+
+**Default configuration:**
+- Provider: `openrouter`
+- Model: `anthropic/claude-sonnet-4`
+
+**Override via CLI:**
+```bash
+npm run dev -- --provider anthropic --model claude-4.5-sonnet
+```
+
+**Override via environment:**
+```bash
+DEFAULT_PROVIDER=anthropic
+DEFAULT_MODEL=claude-4.5-sonnet
+```
+
+**Common errors:**
+
+<Accordion title="Error: ANTHROPIC_API_KEY is required">
+  You selected the `anthropic` provider but didn't set the API key.
+
+  **Solution:** Add `ANTHROPIC_API_KEY` to your `.env` file or switch to `openrouter`.
+</Accordion>
+
+<Accordion title="Model not found / 404">
+  The model ID doesn't exist for the selected provider.
+
+  **Solution:**
+  - For Anthropic: Use `claude-4.5-sonnet`, `claude-sonnet-3-5`, etc.
+  - For OpenRouter: Use format `anthropic/claude-sonnet-4`, `openai/gpt-4`, etc.
+</Accordion>
+
+---
+
+## pm2 Production Issues
+
+### Warden Not Starting After Reboot
+
+**Check if pm2 startup is configured:**
+```bash
+pm2 list
+pm2 startup
+```
+
+**Reconfigure startup script:**
+```bash
+pm2 save && pm2 startup
+```
+
+Follow the instructions printed by pm2 (usually requires running a command with sudo).
+
+### Rebuilding After Code Changes
+
+Always rebuild TypeScript before restarting:
+```bash
+npm run build && pm2 restart warden
+```
+
+<Warning>
+  `pm2 restart` alone will NOT recompile TypeScript. You must run `npm run build` first.
+</Warning>
+
+### Environment Variables Not Loading
+
+If you update `.env` while Warden is running:
+```bash
+pm2 restart warden --update-env
+```
+
+### Viewing pm2 Logs
+
+```bash
+pm2 logs warden          # Stream logs
+pm2 logs warden --lines 100  # Last 100 lines
+pm2 logs warden --err    # Error logs only
+```
+
+---
+
+## Telegram Bot Issues
+
+### Bot Not Responding
+
+<Accordion title="Check if bot is enabled">
+  The Telegram bot is **optional** and only starts if `TELEGRAM_BOT_TOKEN` is set.
+
+  **Verify:**
+  ```bash
+  echo $TELEGRAM_BOT_TOKEN
+  ```
+
+  If empty, add it to `.env` and restart Warden.
+</Accordion>
+
+<Accordion title="Bot token invalid">
+  **Symptoms:** Error on startup mentioning "Unauthorized" or "401"
+
+  **Solution:**
+  1. Get a new token from [@BotFather](https://t.me/botfather)
+  2. Update `TELEGRAM_BOT_TOKEN` in `.env`
+  3. Restart Warden
+</Accordion>
+
+### Tasks from Telegram Not Executing
+
+**Check task status in Supabase:**
+
+1. Go to your Supabase dashboard
+2. Open the Table Editor
+3. View `warden_tasks` table
+4. Look for tasks with `metadata.source = 'telegram'`
+
+**Possible states:**
+- `pending`: Waiting in queue (normal)
+- `running`: Currently executing (normal)
+- `done`: Completed successfully
+- `failed`: Check the `error` column for details
+
+---
+
+## Cron Job Issues
+
+### Cron Jobs Not Running
+
+**Check if cron scheduler is enabled:**
+
+```bash
+npx tsx src/cron-cli.ts list
+```
+
+Look for the `enabled` column.
+
+**Common issues:**
+
+<Accordion title="Job disabled">
+  **Solution:**
+  ```bash
+  npx tsx src/cron-cli.ts update <job-id> --enabled true
+  ```
+</Accordion>
+
+<Accordion title="Wrong timezone">
+  Verify the timezone is correct (e.g., `America/Los_Angeles`):
+  ```bash
+  npx tsx src/cron-cli.ts list
+  ```
+
+  Update timezone:
+  ```bash
+  npx tsx src/cron-cli.ts update <job-id> --timezone "America/New_York"
+  ```
+</Accordion>
+
+<Accordion title="Invalid cron expression">
+  Test your cron expression at [crontab.guru](https://crontab.guru/)
+
+  Common patterns:
+  - `0 8 * * *` → Daily at 8:00 AM
+  - `0 */6 * * *` → Every 6 hours
+  - `0 9 * * 1` → Every Monday at 9:00 AM
+</Accordion>
+
+---
+
+## WordPress Integration Issues
+
+### wp-cli Commands Failing
+
+**Prerequisites:**
+- `wp-cli` must be installed via Homebrew: `brew install wp-cli`
+- `WP_SSH` environment variable must be set
+
+**Test wp-cli connectivity:**
+```bash
+wp post list --ssh="$WP_SSH"
+```
+
+<Accordion title="Error: ssh: connect to host failed">
+  **Cause:** SSH connection failed
+
+  **Solution:**
+  1. Verify `WP_SSH` format: `user@hostname` or `user@hostname/path`
+  2. Test SSH manually: `ssh user@hostname`
+  3. Ensure SSH keys are configured correctly
+</Accordion>
+
+<Accordion title="Error: wp command not found">
+  **Cause:** wp-cli not installed
+
+  **Solution:**
+  ```bash
+  brew install wp-cli
+  ```
+</Accordion>
+
+---
+
+## Blocked Commands
+
+### Git/GitHub Commands Don't Work
+
+<Note>
+  Git and GitHub CLI commands are **intentionally blocked** in Warden. This agent focuses on content and automation, not code management.
+</Note>
+
+**Blocked commands:**
+- `git` (all subcommands)
+- `gh` (GitHub CLI)
+
+**Implementation:**
+
+```typescript:~/workspace/source/src/session-store.ts
+const BLOCKED_COMMANDS = ["git", "gh"];
+const tools = createCodingTools(process.cwd(), {
+  bash: {
+    spawnHook: (context) => {
+      const firstWord = context.command.trimStart().split(/\s+/)[0];
+      if (BLOCKED_COMMANDS.includes(firstWord)) {
+        throw new Error(
+          `Command '${firstWord}' is not available. Use the wp tool for WordPress operations and bash for other tasks.`
+        );
+      }
+      return context;
+    },
+  },
+});
+```
+
+**Alternative:** If you need version control, use a different tool or modify the blocked commands list in `session-store.ts`.
+
+---
+
+## Performance Issues
+
+### High Token Usage
+
+**Monitor token usage in Supabase:**
+
+Query the `warden_agent_steps` table:
+
+```sql
+SELECT 
+  task_id,
+  SUM(tokens_in) as total_input,
+  SUM(tokens_out) as total_output,
+  SUM(cost_usd) as total_cost
+FROM warden_agent_steps
+WHERE step_type = 'turn_end'
+GROUP BY task_id
+ORDER BY total_cost DESC
+LIMIT 10;
+```
+
+**Reduce token usage:**
+1. Reset sessions more frequently (use `/new`)
+2. Keep conversations focused and concise
+3. Avoid reading large files unnecessarily
+
+### Slow Task Execution
+
+**Check concurrent execution:**
+
+Warden processes one task at a time by design. Check if multiple tasks are queued:
+
+```bash
+SELECT COUNT(*) FROM warden_tasks WHERE status = 'pending';
+```
+
+**Check tool execution:**
+
+Slow tools (bash, file operations) are logged:
+
+```
+[runner] [task abc-123] tool_start: bash
+[runner] [task abc-123] tool_end: bash
+```
+
+Large delays between `tool_start` and `tool_end` indicate slow tool execution.
+
+---
+
+## Getting Help
+
+<Note>
+  For issues not covered here, check the logs first. Warden logs all operations to console and `log.txt`.
+</Note>
+
+**Collect diagnostic information:**
+
+1. **Check Warden is running:**
+   ```bash
+   pm2 list  # or check terminal if using npm run dev
+   ```
+
+2. **View recent logs:**
+   ```bash
+   tail -100 log.txt
+   # or
+   pm2 logs warden --lines 100
+   ```
+
+3. **Check database state:**
+   - Go to Supabase dashboard
+   - View `warden_tasks` table for task status
+   - View `warden_agent_steps` for execution details
+
+4. **Verify environment:**
+   ```bash
+   node --version  # Should be v18+
+   npm --version
+   npx tsx --version
+   ```
+
+**Report issues:** Include logs, error messages, and reproduction steps.

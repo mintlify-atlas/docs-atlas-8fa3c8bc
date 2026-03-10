@@ -1,0 +1,336 @@
+---
+title: "Session Management"
+description: "Managing agent conversation context and memory in the REPL"
+---
+
+## Overview
+
+Warden's REPL maintains a persistent **agent session** that carries conversation history across multiple tasks. This allows the agent to reference previous context, remember decisions, and maintain continuity in your interactions.
+
+## How Sessions Work
+
+### Session Storage
+
+The REPL session is stored in a JSONL file:
+
+```
+~/.warden/sessions/repl.jsonl
+```
+
+Each line in this file represents one message in the conversation history. The session includes:
+
+- User messages (your instructions)
+- Assistant messages (agent responses)
+- Tool results (outputs from bash, read, write, etc.)
+- System prompt and configuration
+
+### Session Key
+
+The REPL uses a fixed session key: `repl`
+
+This distinguishes it from other session sources like Telegram chats, which use keys like `telegram-<chatId>`.
+
+## Viewing Session Context
+
+Use `/context` to inspect the current session state:
+
+```bash
+warden> /context
+── Agent Context ──
+  Model:    claude-sonnet-4-20250514
+  Provider: anthropic
+  Tools:    bash, read, write, edit, glob, grep
+  Messages: 24
+  System prompt: 2847 chars
+
+  Estimated context size: ~32140 tokens (128560 chars)
+
+  [0] user: Check if the server is running
+  [1] assistant: I'll check the server status... [+2 tool calls]
+  [2] toolResult: bash
+  [3] user: Now restart it if it's down
+  [4] assistant: The server is running normally...
+  ...
+```
+
+### Context Details
+
+<Tabs>
+  <Tab title="Model Info">
+    Shows which LLM model and provider are active for this session.
+    
+    ```
+    Model:    claude-sonnet-4-20250514
+    Provider: anthropic
+    ```
+    
+    Configured via CLI flags (`--model`, `--provider`) or environment variables (`ANTHROPIC_MODEL`).
+  </Tab>
+  
+  <Tab title="Tools">
+    Lists all tools available to the agent in this session.
+    
+    ```
+    Tools:    bash, read, write, edit, glob, grep
+    ```
+    
+    These are built-in tools from `@mariozechner/pi-coding-agent`.
+  </Tab>
+  
+  <Tab title="Message Count">
+    Total number of messages in the conversation history.
+    
+    ```
+    Messages: 24
+    ```
+    
+    Includes user messages, assistant responses, and tool results. Higher counts mean more context but also more tokens.
+  </Tab>
+  
+  <Tab title="Token Estimate">
+    Approximate context window usage based on character count.
+    
+    ```
+    Estimated context size: ~32140 tokens (128560 chars)
+    ```
+    
+    Uses the rough heuristic of **4 characters per token**. Useful for monitoring when you're approaching model limits.
+  </Tab>
+</Tabs>
+
+## Resetting the Session
+
+Use `/new` to clear conversation history and start fresh:
+
+```bash
+warden> /new
+Session reset. Starting fresh.
+```
+
+### What Gets Reset
+
+- All conversation history (user/assistant messages)
+- Tool result cache
+- Any context the agent built up from previous tasks
+
+### What Persists
+
+- Model and provider configuration
+- System prompt
+- Available tools
+- Environment variables
+
+<Warning>
+  Resetting the session is **permanent**. The old conversation history is not recoverable. Use this when you want the agent to "forget" previous context.
+</Warning>
+
+## When to Reset
+
+### Good Reasons to Reset
+
+<Tabs>
+  <Tab title="Context Confusion">
+    The agent is referencing old decisions or code that's no longer relevant.
+    
+    ```bash
+    warden> /new
+    warden> Start fresh: refactor the auth module
+    ```
+  </Tab>
+  
+  <Tab title="Token Limits">
+    You're approaching the model's context window limit.
+    
+    ```bash
+    warden> /context
+    # Shows ~180000 tokens (Claude Sonnet limit: 200k)
+    
+    warden> /new
+    warden> Continue with the deployment task
+    ```
+  </Tab>
+  
+  <Tab title="Topic Change">
+    Switching to a completely unrelated task.
+    
+    ```bash
+    # After working on backend bugs for an hour...
+    warden> /new
+    warden> Write documentation for the frontend API
+    ```
+  </Tab>
+</Tabs>
+
+### Bad Reasons to Reset
+
+<Note>
+  **Don't reset** if you want the agent to remember previous work. The persistent session is a feature — it allows the agent to build on earlier context and make informed decisions.
+</Note>
+
+- The agent made a mistake (just correct it in the next message)
+- You want to see if it would answer differently (better to ask explicitly)
+- You're running low on a specific resource (the session doesn't affect system resources)
+
+## Session Lifecycle
+
+### On Startup
+
+1. Warden checks for `~/.warden/sessions/repl.jsonl`
+2. If it exists, loads the full conversation history
+3. If not, creates a new session with just the system prompt
+
+### During Tasks
+
+1. Each user instruction is appended to the session
+2. Agent responses and tool results are appended
+3. The session file is updated continuously
+4. Context grows with each turn
+
+### On Shutdown
+
+1. The session is saved to disk
+2. No cleanup or pruning happens
+3. Next startup will resume from the same state
+
+## Session Persistence Across Sources
+
+Warden maintains **separate sessions** for different input sources:
+
+| Source | Session Key | Persistence |
+|--------|-------------|-------------|
+| REPL | `repl` | `~/.warden/sessions/repl.jsonl` |
+| Telegram | `telegram-<chatId>` | `~/.warden/sessions/telegram-<chatId>.jsonl` |
+| HTTP API | None | No persistence (ephemeral) |
+
+This means:
+
+- Your REPL conversation is independent from Telegram chats
+- Each Telegram chat has its own memory
+- API tasks start fresh every time (no memory)
+
+<Note>
+  HTTP API tasks are **ephemeral** by design. They don't persist conversation history because they're meant for one-off commands from automation scripts.
+</Note>
+
+## Advanced: Session Inspection
+
+The session file is plain text JSONL. You can inspect it directly:
+
+```bash
+tail -n 20 ~/.warden/sessions/repl.jsonl | jq .
+```
+
+Each line is a JSON object representing one message:
+
+```json
+{"role":"user","content":"Fix the type error in runner.ts"}
+{"role":"assistant","content":[{"type":"text","text":"I'll check the file first..."},{"type":"tool_call","toolName":"read","toolCallId":"..."}]}
+{"role":"toolResult","toolCallId":"...","result":"...file contents..."}
+```
+
+### Manual Editing
+
+<Warning>
+  **Not recommended.** Manually editing session files can corrupt the conversation history and cause errors. Use `/new` to reset instead.
+</Warning>
+
+If you need to prune old messages without losing everything:
+
+1. Stop Warden
+2. Back up the session file
+3. Edit `~/.warden/sessions/repl.jsonl` to remove old lines
+4. Restart Warden
+
+## Context Window Management
+
+Different models have different context limits:
+
+| Model | Context Limit | Typical Resets Needed |
+|-------|---------------|----------------------|
+| Claude Sonnet 4 | 200k tokens | After ~50-100 tasks |
+| Claude Opus | 200k tokens | After ~50-100 tasks |
+| GPT-4 Turbo | 128k tokens | After ~30-60 tasks |
+
+### Monitoring Usage
+
+Check token usage regularly:
+
+```bash
+warden> /context
+Estimated context size: ~87234 tokens (348936 chars)
+```
+
+If you're over 70% of the limit, consider resetting:
+
+```bash
+warden> /new
+```
+
+## Session and Task Execution
+
+When you queue a task from the REPL:
+
+```bash
+warden> Deploy the latest changes to production
+Task queued: a3f9b21c-...
+```
+
+The runner executes the task using the **REPL session context**. This means:
+
+1. The agent sees all previous REPL conversation history
+2. Tool results from earlier tasks are available
+3. Decisions and context from past work inform the current task
+
+### Task Isolation
+
+Each task's execution is logged separately in the database:
+
+- `warden_tasks` table stores the instruction and result
+- `agent_steps` table logs every tool call during execution
+- `conversation_history` table snapshots the full message array per task
+
+But the REPL session itself is continuous across all tasks.
+
+## Common Patterns
+
+### Multi-Step Workflows
+
+```bash
+warden> Analyze the codebase structure
+# Wait for completion...
+
+warden> Now write tests for the main modules
+# Agent remembers the analysis from the previous task
+
+warden> Finally, run the test suite and fix any failures
+# Agent has context from both previous tasks
+```
+
+### Context Checkpoints
+
+```bash
+# After finishing a major feature:
+warden> Summarize all the changes we made today
+
+# Then reset:
+warden> /new
+
+# Start fresh with the summary in mind:
+warden> Based on the auth refactor, update the API docs
+```
+
+### Debugging with History
+
+```bash
+warden> /context
+# Review recent messages to understand why a task failed
+
+warden> The error happened because we forgot to restart the server. Try again.
+# Agent uses context to avoid repeating the mistake
+```
+
+## Related Documentation
+
+- [REPL Modes](/commands/repl/modes) — All available REPL commands
+- [Task Execution](/core-concepts/task-execution) — How tasks are processed
+- [Architecture](/architecture) — System design and component interaction

@@ -1,0 +1,580 @@
+---
+title: Understanding Logs
+description: How to read and interpret Warden's logging system for debugging
+---
+
+## Log Locations
+
+Warden writes logs to multiple locations depending on how it's running:
+
+<CodeGroup>
+```bash Development (npm run dev)
+# Console output + log.txt file
+npm run dev 2>&1 | tee log.txt
+
+# View logs
+tail -f log.txt
+```
+
+```bash Production (pm2)
+# pm2 manages logs automatically
+pm2 logs warden
+
+# Log files stored in:
+~/.pm2/logs/warden-out.log
+~/.pm2/logs/warden-error.log
+```
+</CodeGroup>
+
+<Note>
+  Always run `npm run dev 2>&1 | tee log.txt` to capture both stdout and stderr.
+</Note>
+
+---
+
+## Log Structure
+
+Warden uses a prefix-based logging system for easy filtering:
+
+```
+[component] message
+```
+
+### Log Prefixes
+
+| Prefix | Component | What It Logs |
+|--------|-----------|-------------|
+| `[runner]` | Task Runner | Task polling, execution, completion |
+| `[logger]` | Event Logger | Database logging failures |
+| `[telegram]` | Telegram Bot | Bot messages, task notifications |
+| `[cron]` | Cron Scheduler | Scheduled job execution |
+| `[repl]` | REPL | Interactive commands |
+
+---
+
+## Reading Runner Logs
+
+### Startup
+
+When Warden starts, the runner performs recovery and begins polling:
+
+```bash
+Warden starting — provider: openrouter, model: anthropic/claude-sonnet-4
+[runner] Marked 2 stuck task(s) as failed
+[runner] Polling for tasks every 2000ms
+```
+
+**What this means:**
+- Warden recovered 2 tasks that were stuck in `running` state (likely from a previous crash)
+- Now polling Supabase every 2 seconds for new tasks
+
+### Task Execution
+
+```bash
+[runner] Executing task abc-123-def: "Write a blog post about AI automation"
+[runner] Session: telegram-456789 (persistent)
+```
+
+**Key information:**
+- Task ID: `abc-123-def`
+- Instruction preview (first 60 chars)
+- Session key: Shows which persistent session is being used
+  - `telegram-<chatId>`: Telegram conversation
+  - `repl`: Interactive REPL
+  - Missing: Stateless task (e.g., cron job)
+
+### Tool Execution
+
+Warden logs every tool call in detail:
+
+```bash
+[runner] [task abc-123] tool_start: bash
+{
+  "command": "npm test",
+  "description": "Run tests"
+}
+[runner] [task abc-123] tool_end: bash
+✓ All tests passed (5/5)
+```
+
+**Log structure:**
+- `tool_start`: Tool name + arguments (JSON)
+- `tool_end`: Tool name + result (first 2000 chars)
+- `tool_error`: Tool name + error message (if failed)
+
+<Accordion title="Example: Read tool">
+```bash
+[runner] [task abc-123] tool_start: read
+{
+  "filePath": "/home/user/project/README.md"
+}
+[runner] [task abc-123] tool_end: read
+# Project Name
+A great project...
+```
+</Accordion>
+
+<Accordion title="Example: Edit tool">
+```bash
+[runner] [task abc-123] tool_start: edit
+{
+  "filePath": "/home/user/config.json",
+  "oldString": "debug: false",
+  "newString": "debug: true"
+}
+[runner] [task abc-123] tool_end: edit
+File updated successfully
+```
+</Accordion>
+
+<Accordion title="Example: Tool error">
+```bash
+[runner] [task abc-123] tool_start: bash
+{
+  "command": "git status"
+}
+[runner] [task abc-123] tool_error: bash
+Command 'git' is not available. Use the wp tool for WordPress operations and bash for other tasks.
+```
+</Accordion>
+
+### Task Completion
+
+<CodeGroup>
+```bash Success
+[runner] Task abc-123 completed
+I've successfully written the blog post. The content has been published to WordPress.
+```
+
+```bash Failure
+[runner] Task abc-123 failed: Model returned an error: Rate limit exceeded
+```
+</CodeGroup>
+
+---
+
+## Database Event Logging
+
+Warden logs all agent events to Supabase for persistence and analysis:
+
+### Event Types
+
+From `logger.ts`:
+
+```typescript:~/workspace/source/src/logger.ts
+export function createEventLogger(taskId: string) {
+  let totalTokensIn = 0;
+  let totalTokensOut = 0;
+  let totalCostUsd = 0;
+
+  async function log(event: Record<string, unknown>) {
+    const eventType = event.type as string;
+    if (!eventType) return;
+
+    try {
+      switch (eventType) {
+        case "tool_execution_start": {
+          // Logs tool name and arguments
+          await insertAgentStep({
+            task_id: taskId,
+            step_type: "tool_start",
+            tool_name: toolEvent.toolName ?? null,
+            tool_args: toolEvent.args ?? null,
+            // ...
+          });
+          break;
+        }
+
+        case "tool_execution_end": {
+          // Logs tool result (truncated to 10,000 chars)
+          await insertAgentStep({
+            task_id: taskId,
+            step_type: "tool_end",
+            tool_name: toolEvent.toolName ?? null,
+            tool_result: toolEvent.result.slice(0, 10000),
+            is_error: toolEvent.isError ?? false,
+            // ...
+          });
+          break;
+        }
+
+        case "turn_end": {
+          // Logs token usage and cost
+          await insertAgentStep({
+            task_id: taskId,
+            step_type: "turn_end",
+            tokens_in: tokensIn,
+            tokens_out: tokensOut,
+            cost_usd: cost,
+            // ...
+          });
+          break;
+        }
+
+        case "agent_end": {
+          // Logs total usage for the task
+          await insertAgentStep({
+            task_id: taskId,
+            step_type: "agent_end",
+            tokens_in: totalTokensIn,
+            tokens_out: totalTokensOut,
+            cost_usd: totalCostUsd,
+            // ...
+          });
+          break;
+        }
+      }
+    } catch (err) {
+      console.error(`[logger] Failed to log event ${eventType}:`, err);
+    }
+  }
+}
+```
+
+### Querying Event Logs
+
+You can query the `warden_agent_steps` table in Supabase:
+
+<CodeGroup>
+```sql Get all steps for a task
+SELECT * FROM warden_agent_steps
+WHERE task_id = 'abc-123-def'
+ORDER BY created_at ASC;
+```
+
+```sql Find failed tool executions
+SELECT task_id, tool_name, tool_result
+FROM warden_agent_steps
+WHERE step_type = 'tool_end'
+  AND is_error = true
+ORDER BY created_at DESC
+LIMIT 20;
+```
+
+```sql Calculate token usage by task
+SELECT 
+  task_id,
+  SUM(tokens_in) as total_input,
+  SUM(tokens_out) as total_output,
+  SUM(cost_usd) as total_cost
+FROM warden_agent_steps
+WHERE step_type = 'turn_end'
+GROUP BY task_id
+ORDER BY total_cost DESC;
+```
+
+```sql Most used tools
+SELECT 
+  tool_name,
+  COUNT(*) as usage_count
+FROM warden_agent_steps
+WHERE step_type = 'tool_start'
+GROUP BY tool_name
+ORDER BY usage_count DESC;
+```
+</CodeGroup>
+
+<Note>
+  Tool results are truncated to 10,000 characters in the database to prevent excessive storage usage.
+</Note>
+
+---
+
+## Conversation History
+
+Warden saves the full conversation (all messages) on every turn:
+
+```typescript:~/workspace/source/src/runner.ts
+// Save conversation history on turn_end
+if (event.type === "turn_end") {
+  const messages = session.messages;
+  if (messages) {
+    upsertConversationHistory(ctx.taskId, messages).catch((err) => {
+      console.error(`[runner] Failed to save conversation history:`, err);
+    });
+  }
+}
+```
+
+### Viewing Conversation History
+
+<CodeGroup>
+```sql Get conversation for a task
+SELECT messages FROM warden_conversation_history
+WHERE task_id = 'abc-123-def';
+```
+
+```bash Format as JSON
+# Copy the messages array from Supabase and save to file
+jq '.' conversation.json
+```
+</CodeGroup>
+
+The `messages` field contains the full conversation in Anthropic API format:
+
+```json
+[
+  {
+    "role": "user",
+    "content": "Write a blog post about AI automation"
+  },
+  {
+    "role": "assistant",
+    "content": "I'll help you write a blog post..."
+  },
+  {
+    "role": "user",
+    "content": [{
+      "type": "tool_result",
+      "tool_use_id": "...",
+      "content": "..."
+    }]
+  }
+]
+```
+
+---
+
+## Error Patterns
+
+### Common Error Messages
+
+<Accordion title="[logger] Failed to log event">
+  **Message:**
+  ```
+  [logger] Failed to log event tool_execution_end: Error: Connection failed
+  ```
+
+  **Cause:** Database connection issue (network or Supabase down)
+
+  **Impact:** Event not saved to database, but task execution continues
+
+  **Solution:** Check Supabase status and network connection. The task will still complete, but you'll lose telemetry for this event.
+</Accordion>
+
+<Accordion title="[runner] Failed to save conversation history">
+  **Message:**
+  ```
+  [runner] Failed to save conversation history: Error: Connection timeout
+  ```
+
+  **Cause:** Database write failed during `turn_end`
+
+  **Impact:** Conversation not saved, but task continues
+
+  **Solution:** Verify Supabase connection. Check if your database has enough storage quota.
+</Accordion>
+
+<Accordion title="[runner] Poll error">
+  **Message:**
+  ```
+  [runner] Poll error: Error: getModel is not a function
+  ```
+
+  **Cause:** Session creation failed (usually due to invalid model/provider config)
+
+  **Impact:** Task marked as failed automatically
+
+  **Solution:** Check your model and provider configuration. Ensure API keys are set correctly.
+</Accordion>
+
+<Accordion title="[runner] Task failed">
+  **Message:**
+  ```
+  [runner] Task abc-123 failed: Model returned an error: Rate limit exceeded
+  ```
+
+  **Cause:** The LLM API returned an error (rate limit, invalid request, etc.)
+
+  **Impact:** Task marked as failed in database
+
+  **Solution:** 
+  - Rate limits: Wait and retry, or upgrade API plan
+  - Invalid requests: Check the task instruction and model capabilities
+  - API outages: Check provider status page
+</Accordion>
+
+### Fatal Errors
+
+These errors cause Warden to exit:
+
+```bash
+Fatal error: Error: SUPABASE_URL and SUPABASE_ANON_KEY must be set
+```
+
+**Resolution:** Fix the environment configuration and restart Warden.
+
+---
+
+## Filtering Logs
+
+Use `grep` to filter logs by component or task:
+
+<CodeGroup>
+```bash All runner logs
+grep '\[runner\]' log.txt
+```
+
+```bash Specific task
+grep 'abc-123' log.txt
+```
+
+```bash Tool errors only
+grep 'tool_error' log.txt
+```
+
+```bash Token usage
+grep 'turn_end' log.txt
+```
+
+```bash pm2 error logs only
+pm2 logs warden --err
+```
+</CodeGroup>
+
+---
+
+## Log Rotation
+
+### Development (log.txt)
+
+The `log.txt` file grows indefinitely. Rotate it manually:
+
+```bash
+# Archive old log
+mv log.txt log-$(date +%Y%m%d).txt
+
+# Restart logging
+npm run dev 2>&1 | tee log.txt
+```
+
+### Production (pm2)
+
+pm2 automatically rotates logs. Configure rotation settings:
+
+```bash
+pm2 install pm2-logrotate
+pm2 set pm2-logrotate:max_size 10M
+pm2 set pm2-logrotate:retain 7
+```
+
+---
+
+## Debug Mode
+
+Warden doesn't have a built-in debug mode, but you can add verbose logging:
+
+### Temporary Debug Logging
+
+Add console logs to specific files:
+
+```typescript
+// In runner.ts or any file
+console.log('[DEBUG]', JSON.stringify(data, null, 2));
+```
+
+Recompile and restart:
+```bash
+npm run build && pm2 restart warden
+```
+
+<Warning>
+  Remove debug logs before committing to avoid log spam in production.
+</Warning>
+
+---
+
+## Monitoring Best Practices
+
+### Real-time Monitoring
+
+<CodeGroup>
+```bash Watch logs live
+tail -f log.txt
+
+# or with pm2
+pm2 logs warden
+```
+
+```bash Watch task queue
+watch -n 5 'echo "SELECT COUNT(*) FROM warden_tasks WHERE status = \"pending\";" | psql $DATABASE_URL'
+```
+
+```bash Monitor system resources
+top -p $(pgrep -f warden)
+```
+</CodeGroup>
+
+### Alerting
+
+Set up alerts for critical events:
+
+1. **Task failures:** Query `warden_tasks` for `status = 'failed'`
+2. **Stuck tasks:** Count tasks in `running` state for > 30 minutes
+3. **High costs:** Sum `cost_usd` from `warden_agent_steps` per day
+
+### Performance Metrics
+
+Track these metrics over time:
+
+```sql
+-- Average task duration
+SELECT 
+  AVG(EXTRACT(EPOCH FROM (completed_at - started_at))) as avg_duration_seconds
+FROM warden_tasks
+WHERE status IN ('done', 'failed')
+  AND created_at > NOW() - INTERVAL '24 hours';
+
+-- Task success rate
+SELECT 
+  status,
+  COUNT(*) as count,
+  ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
+FROM warden_tasks
+WHERE completed_at > NOW() - INTERVAL '7 days'
+GROUP BY status;
+
+-- Daily cost
+SELECT 
+  DATE(created_at) as date,
+  SUM(cost_usd) as daily_cost
+FROM warden_agent_steps
+WHERE step_type = 'agent_end'
+GROUP BY DATE(created_at)
+ORDER BY date DESC;
+```
+
+---
+
+## Troubleshooting with Logs
+
+### Step-by-Step Debugging Process
+
+1. **Identify the task ID** from logs or Supabase
+
+2. **View the full task lifecycle:**
+   ```bash
+   grep 'abc-123' log.txt
+   ```
+
+3. **Check agent steps in Supabase:**
+   ```sql
+   SELECT * FROM warden_agent_steps
+   WHERE task_id = 'abc-123'
+   ORDER BY created_at;
+   ```
+
+4. **Review conversation history:**
+   ```sql
+   SELECT messages FROM warden_conversation_history
+   WHERE task_id = 'abc-123';
+   ```
+
+5. **Look for errors:**
+   - Check `is_error = true` in agent_steps
+   - Check `error` column in warden_tasks
+   - Search logs for `tool_error` or `failed`
+
+<Note>
+  Most issues can be diagnosed by following tool execution in chronological order and identifying where execution diverged from expected behavior.
+</Note>

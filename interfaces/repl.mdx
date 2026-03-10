@@ -1,0 +1,212 @@
+---
+title: 'REPL Interface'
+description: 'Interactive command-line interface for local task management'
+---
+
+The REPL (Read-Eval-Print Loop) provides an interactive terminal interface for managing Warden tasks locally. It's started automatically when you run `npm run dev` and offers both direct commands and task queue operations.
+
+## Starting the REPL
+
+<Steps>
+  <Step title="Start the development server">
+    ```bash
+    npm run dev
+    ```
+    This launches the REPL alongside the task runner and Telegram bot (if configured).
+  </Step>
+  
+  <Step title="Wait for the prompt">
+    You'll see:
+    ```
+    Warden REPL. /new = reset, /context = show context, /tasks = active, /cronJobs = cron, /quit = exit.
+    warden>
+    ```
+  </Step>
+</Steps>
+
+## Submitting Tasks
+
+Type any instruction at the prompt to queue a task:
+
+```bash
+warden> Check disk space and clean up logs older than 30 days
+Task queued: a3f8c2b4-...
+```
+
+Tasks are inserted into the Supabase queue with `metadata.source = "repl"` and picked up by the runner.
+
+## Commands
+
+### Session Management
+
+<CodeGroup>
+```bash /new
+# Reset the session and start fresh
+warden> /new
+Session reset. Starting fresh.
+```
+
+```bash /context
+# Show current agent context (model, tokens, message history)
+warden> /context
+── Agent Context ──
+  Model:    claude-3-5-sonnet-20241022
+  Provider: anthropic
+  Tools:    bash, read, write, edit, glob, grep
+  Messages: 12
+  System prompt: 8432 chars
+
+  Estimated context size: ~24567 tokens (98268 chars)
+```
+</CodeGroup>
+
+### Task Inspection
+
+<CodeGroup>
+```bash /tasks
+# List all active tasks (pending or running)
+warden> /tasks
+  a3f8c2b4  running    45s  Check disk space and clean up logs
+  b7e9d1a2  pending    12s  Update npm dependencies
+```
+
+```bash /history
+# Show recent tasks (all statuses, default: 3)
+warden> /history 5
+  c4f2a8e1  done      2m  Deploy to production
+  a3f8c2b4  running  45s  Check disk space
+  f9b3c7d5  failed    3m  Invalid SSH credentials
+```
+
+```bash /activeTask
+# Show currently running task with tool invocations
+warden> /activeTask
+  ID:      a3f8c2b4-5e7f-...
+  Status:  running
+  Age:     48s
+  Instr:   Check disk space and clean up logs older than 30 days
+  ── Tool invocations (4 steps) ──
+  2:15:42 PM  ▶ bash  {"command":"df -h"}
+  2:15:43 PM  ✓ bash  Filesystem      Size  Used Avail Use% Mounted on...
+```
+
+```bash /task
+# Look up a specific task by ID prefix
+warden> /task a3f8
+  ID:      a3f8c2b4-5e7f-4a2b-9c1d-...
+  Status:  done
+  Age:     2m
+  Instr:   Check disk space and clean up logs older than 30 days
+  Result:  Cleaned 847 MB of logs. Current disk usage: 42%
+```
+</CodeGroup>
+
+### Cron Jobs
+
+<CodeGroup>
+```bash /cronJobs
+# List active scheduled jobs
+warden> /cronJobs
+  d4a9f2b1  daily-backup  [0 2 * * *]  next: 3/11/2026, 2:00:00 AM  Backup database to S3
+  e8c3b5a7  health-check  [every 300000ms]  next: 3/10/2026, 3:23:15 PM  Check service health
+```
+
+```bash /deleteCron
+# Delete a cron job by ID prefix
+warden> /deleteCron d4a9
+Deleted cron job: d4a9f2b1-... (daily-backup)
+```
+</CodeGroup>
+
+### Skills
+
+<CodeGroup>
+```bash /skills
+# List available skill guides
+warden> /skills
+Available skills: content-style, co-marketing, seo-audit, publish
+```
+
+```bash /skill
+# Run a task with a skill guide loaded into context
+warden> /skill seo-audit Audit homepage for keyword optimization
+Task queued (skill: seo-audit): f2c8a4e9-...
+```
+</CodeGroup>
+
+<Tip>
+Skills are reusable workflow guides stored in `skills/*.md`. They provide specialized instructions for content writing, SEO, publishing, and partner monitoring.
+</Tip>
+
+### Exit
+
+```bash
+warden> /quit
+Goodbye.
+```
+
+Alternatively, press `Ctrl+C` twice to force exit.
+
+## Source Reference
+
+The REPL implementation lives in `src/repl.ts`:
+
+<CodeGroup>
+```typescript Session Reset
+// src/repl.ts:42-46
+if (input === "/new") {
+  markNewSession("repl");
+  console.log("Session reset. Starting fresh.");
+  rl!.prompt();
+  return;
+}
+```
+
+```typescript Task Queuing
+// src/repl.ts:223-228
+try {
+  const task = await insertTask({ 
+    instruction: input, 
+    metadata: { source: "repl" } 
+  });
+  console.log(`Task queued: ${task.id}`);
+} catch (err) {
+  console.error("Failed to queue task:", err);
+}
+```
+</CodeGroup>
+
+## Session Persistence
+
+The REPL maintains a persistent session stored in `~/.warden/sessions/repl.jsonl`. This means:
+
+- Conversation history survives restarts
+- The agent remembers context from previous interactions
+- Use `/new` to reset when you want a clean slate
+
+<Note>
+Session files are managed by `SessionManager` from `@mariozechner/pi-coding-agent` and stored as JSONL (one JSON message per line).
+</Note>
+
+## Architecture Flow
+
+```
+User types instruction
+        |
+        v
+  insertTask() → Supabase (status: pending)
+        |
+        v
+  runner.ts polls → claims task → executes
+        |
+        v
+  Result written back to Supabase
+```
+
+The REPL doesn't execute tasks directly—it queues them for the runner, just like the Telegram interface.
+
+## Related Commands
+
+- See [Telegram Interface](/interfaces/telegram) for remote task submission
+- See [Cron Jobs](/features/cron-jobs) for scheduled task management
+- See [Skills](/features/skills) for workflow guides
