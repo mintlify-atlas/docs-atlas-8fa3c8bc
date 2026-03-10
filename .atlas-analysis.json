@@ -1,0 +1,160 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "Warden",
+  "projectDescription": "A 24/7 local CLI agent that automates tasks through a Supabase-backed queue with Telegram bot integration and cron scheduling.",
+  "theme": "aspen",
+  "primaryColor": "#6366f1",
+  "lightColor": "#818cf8",
+  "darkColor": "#4f46e5",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/task-lifecycle",
+              "concepts/session-persistence",
+              "concepts/cron-scheduling"
+            ]
+          },
+          {
+            "group": "Interfaces",
+            "pages": [
+              "interfaces/repl",
+              "interfaces/telegram",
+              "interfaces/http-api"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment",
+              "configuration/models",
+              "configuration/database"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/pm2",
+              "deployment/development"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Skills & Tools",
+        "groups": [
+          {
+            "group": "Built-in Tools",
+            "pages": [
+              "tools/bash",
+              "tools/file-operations",
+              "tools/wordpress"
+            ]
+          },
+          {
+            "group": "Skills System",
+            "pages": [
+              "skills/overview",
+              "skills/content-writing",
+              "skills/seo-audit",
+              "skills/publishing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Command Reference",
+        "groups": [
+          {
+            "group": "CLI Commands",
+            "pages": [
+              "commands/dev",
+              "commands/build",
+              "commands/cron-cli"
+            ]
+          },
+          {
+            "group": "Telegram Commands",
+            "pages": [
+              "commands/telegram/new",
+              "commands/telegram/tasks",
+              "commands/telegram/history",
+              "commands/telegram/cron"
+            ]
+          },
+          {
+            "group": "REPL Commands",
+            "pages": [
+              "commands/repl/modes",
+              "commands/repl/session-management"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Advanced",
+        "groups": [
+          {
+            "group": "Automation",
+            "pages": [
+              "advanced/content-pipeline",
+              "advanced/cron-patterns",
+              "advanced/metadata-routing"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "advanced/testing",
+              "advanced/debugging",
+              "advanced/custom-skills"
+            ]
+          },
+          {
+            "group": "Troubleshooting",
+            "pages": [
+              "troubleshooting/common-issues",
+              "troubleshooting/logs"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "24/7 autonomous task execution with Supabase queue",
+    "Telegram bot integration for remote control",
+    "Cron scheduling with timezone support",
+    "Session persistence across conversations",
+    "WordPress automation via wp-cli",
+    "Interactive REPL for development",
+    "Built-in content marketing pipeline",
+    "Extensible skills system"
+  ],
+  "publicApiSurface": [
+    "npm run dev — Start development server with logging",
+    "npm run build — Compile TypeScript to dist/",
+    "npm test — Run e2e tests",
+    "npx tsx src/cron-cli.ts add — Schedule recurring tasks",
+    "npx tsx src/cron-cli.ts list — List all cron jobs",
+    "/new — Reset Telegram/REPL session",
+    "/tasks — List active tasks",
+    "/history — Show recent task history",
+    "/cronJobs — List scheduled jobs",
+    "POST /api/task — Submit task via HTTP API",
+    "GET /health — Health check endpoint"
+  ]
+}
